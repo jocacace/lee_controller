@@ -22,8 +22,7 @@ void LEE_CONTROLLER::controller(    int _motor_num,
                                     Eigen::Vector3d normalized_angular_rate_gain,
                                     Eigen::MatrixXd wd2rpm,
                                     double mass,
-                                    double gravity,
-                                                                    
+                                    double gravity,                                 
                                     Eigen::VectorXd* rotor_velocities) {
 
 

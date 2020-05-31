@@ -5,6 +5,7 @@
 #include <Eigen/Eigen>
 #include <mav_msgs/Actuators.h>
 #include "gazebo_msgs/ModelStates.h"
+#include "std_msgs/Float32MultiArray.h"
 
 using namespace std;
 
@@ -23,7 +24,7 @@ class CONTROLLER {
         ros::Subscriber _odom_sub;
         ros::Subscriber _model_state_sub;
         ros::Publisher _motor_velocity_reference_pub;
-
+        ros::Publisher _cmd_vel_motor_pub;
         nav_msgs::Odometry _odom;
         bool _first_odom;
 
@@ -38,7 +39,7 @@ CONTROLLER::CONTROLLER(): _first_odom(false) {
     //_odom_sub = _nh.subscribe("/iris/odometry_sensor1/odometry", 0, &CONTROLLER::OdometryCallback, this);
     _model_state_sub = _nh.subscribe("/gazebo/model_states", 0, &CONTROLLER::ModelStateCb, this);
     _motor_velocity_reference_pub = _nh.advertise<mav_msgs::Actuators>("/iris/command/motor_speed", 1);
-
+    _cmd_vel_motor_pub = _nh.advertise<std_msgs::Float32MultiArray>("/iris_smc/cmd/motor_vel", 0);
 }
 
 
@@ -51,8 +52,7 @@ void CONTROLLER::ModelStateCb( gazebo_msgs::ModelStates ms ) {
 
     nav_msgs::Odometry gazebo_odom;
     while(!found && index < ms.name.size()) {
-        if( ms.name[index] == "iris" ) {
-            cout << "found" << endl;
+        if( ms.name[index] == "iris_smc" ) {
             found = true;
         }
         else index++;
@@ -256,6 +256,9 @@ void CONTROLLER::ctrl_loop() {
 
   LEE_CONTROLLER lc;
 
+  std_msgs::Float32MultiArray motor_vel;
+  motor_vel.data.resize(4);
+
   while( ros::ok() ) {
 
 
@@ -281,8 +284,11 @@ void CONTROLLER::ctrl_loop() {
       actuator_msg->angular_velocities.push_back(ref_rotor_velocities[i]);
     
     _motor_velocity_reference_pub.publish(actuator_msg);
-
-
+    motor_vel.data[0] = ref_rotor_velocities[0];
+    motor_vel.data[1] = ref_rotor_velocities[1];
+    motor_vel.data[2] = ref_rotor_velocities[2];
+    motor_vel.data[3] = ref_rotor_velocities[3];
+    _cmd_vel_motor_pub.publish( motor_vel );
 
     r.sleep();
   }
