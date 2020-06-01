@@ -1,7 +1,7 @@
 #include "lee_controller.h"
 
 
-
+using namespace std;
 
 LEE_CONTROLLER::LEE_CONTROLLER() {
 
@@ -33,20 +33,29 @@ void LEE_CONTROLLER::controller(    int _motor_num,
 
     Eigen::Vector3d position_error;
     //Body frame position error
-    position_error = mes_p - des_p;
+    //position_error = mes_p - des_p;
+    position_error = des_p - mes_p;
    
+    position_error(0) = position_error(1) = 0.0;
+
+    cout << "Mes: " << mes_p << endl;
+    cout << "des: " << des_p << endl;
+    cout << "pe: " << position_error << endl;
+
     // Transform velocity to world frame.
     const Eigen::Matrix3d R_W_I = mes_q.toRotationMatrix();
     Eigen::Vector3d velocity_W =  R_W_I * mes_dp;
     Eigen::Vector3d velocity_error;
-    velocity_error = velocity_W - des_dp;
+    velocity_error = des_dp - velocity_W;
     Eigen::Vector3d e_3(Eigen::Vector3d::UnitZ());
+    e_3 = -e_3;
 
+    cout << "e_3_: " << e_3 << endl;
     acceleration = (position_error.cwiseProduct(position_gain)
       + velocity_error.cwiseProduct(velocity_gain)) / mass
       - gravity * e_3 - des_ddp;
 
-    
+    cout << "acceleration: " << acceleration.transpose() << endl;
 
 
     Eigen::Vector3d angular_acceleration;

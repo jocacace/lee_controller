@@ -6,6 +6,8 @@
 #include <mav_msgs/Actuators.h>
 #include "gazebo_msgs/ModelStates.h"
 #include "std_msgs/Float32MultiArray.h"
+#include "geometry_msgs/PoseStamped.h"
+#include "geometry_msgs/TwistStamped.h"
 
 using namespace std;
 
@@ -19,14 +21,29 @@ class CONTROLLER {
         bool get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor_size );
         void ModelStateCb( gazebo_msgs::ModelStates ms );
 
+        void local_pose_cb( geometry_msgs::PoseStamped msg);
+        void local_vel_cb( geometry_msgs::TwistStamped msg);
+
     private:
         ros::NodeHandle _nh;
         ros::Subscriber _odom_sub;
         ros::Subscriber _model_state_sub;
+        ros::Subscriber _local_pose_cb;
+        ros::Subscriber _local_vel_cb;
+        
         ros::Publisher _motor_velocity_reference_pub;
         ros::Publisher _cmd_vel_motor_pub;
         nav_msgs::Odometry _odom;
-        bool _first_odom;
+        bool _first_pos;
+        bool _first_vel;
+
+
+
+        Eigen::Vector3d mes_p;        
+        Eigen::Quaterniond mes_q;
+        Eigen::Vector3d mes_dp;    
+        Eigen::Vector3d mes_w;
+
 
 };
 
@@ -34,12 +51,33 @@ class CONTROLLER {
 
 
 
-CONTROLLER::CONTROLLER(): _first_odom(false) {
+CONTROLLER::CONTROLLER(): _first_pos(false), _first_vel(false) {
 
     //_odom_sub = _nh.subscribe("/iris/odometry_sensor1/odometry", 0, &CONTROLLER::OdometryCallback, this);
     _model_state_sub = _nh.subscribe("/gazebo/model_states", 0, &CONTROLLER::ModelStateCb, this);
     _motor_velocity_reference_pub = _nh.advertise<mav_msgs::Actuators>("/iris/command/motor_speed", 1);
     _cmd_vel_motor_pub = _nh.advertise<std_msgs::Float32MultiArray>("/iris_smc/cmd/motor_vel", 0);
+
+
+    _local_pose_cb = _nh.subscribe("/iris_smc/local_pose", 0, &CONTROLLER::local_pose_cb, this);
+    _local_vel_cb = _nh.subscribe("/iris_smc/local_vel", 0, &CONTROLLER::local_vel_cb, this);
+
+}
+
+
+
+void CONTROLLER::local_pose_cb( geometry_msgs::PoseStamped msg) {
+     mes_p << msg.pose.position.x, msg.pose.position.y, msg.pose.position.z;        
+     mes_q = Eigen::Quaterniond( msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z );
+
+    _first_pos = true;
+}
+
+void CONTROLLER::local_vel_cb( geometry_msgs::TwistStamped msg) {
+    mes_dp << msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z;    
+    mes_w << msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z;
+    
+    _first_vel = true;
 }
 
 
@@ -79,7 +117,7 @@ void CONTROLLER::ModelStateCb( gazebo_msgs::ModelStates ms ) {
         gazebo_odom.twist.twist.angular.z = ms.twist[index].angular.z;
 
 
-        _first_odom = true;
+        //_first_odom = true;
         _odom = gazebo_odom;
     }
 
@@ -193,15 +231,15 @@ void CONTROLLER::ctrl_loop() {
   Eigen::Vector3d des_dp; 
   Eigen::Vector3d des_ddp; 
 
-  des_p << 2.0, 0.0, 1.0;
+  des_p << 0.0, 0.0, -1.0;
   des_dp << 0.0, 0.0, 0.0;
   des_ddp << 0.0, 0.0, 0.0;
   
 
-  Eigen::Vector3d mes_p;
-  Eigen::Quaterniond mes_q;
-  Eigen::Vector3d mes_dp;    
-  Eigen::Vector3d mes_w;
+  //Eigen::Vector3d mes_p;
+  //Eigen::Quaterniond mes_q;
+  //Eigen::Vector3d mes_dp;    
+  //Eigen::Vector3d mes_w;
 
 
   Eigen::Matrix4Xd allocation_matrix;
@@ -235,9 +273,11 @@ void CONTROLLER::ctrl_loop() {
   angular_rate_gain << 0.4, 0.52, 0.18;
   
   double mass = 1.57;
-  double gravity = 9.81;
+  double gravity = -9.81;
   double des_yaw = 0.0;
-  while( !_first_odom ) usleep(0.1*1e6);
+  //while( !_first_odom ) usleep(0.1*1e6);
+  while( !_first_vel || !_first_pos ) usleep(0.1*1e6);
+
 
 
   if( !get_allocation_matrix( allocation_M, _motor_num ) ) exit(0);
@@ -252,7 +292,6 @@ void CONTROLLER::ctrl_loop() {
   I(3, 3) = 1;
 
   wd2rpm = allocation_M.transpose() * (allocation_M*allocation_M.transpose()).inverse()*I;    
-  cout << "wd2rpm: " << endl << wd2rpm << endl;
 
   LEE_CONTROLLER lc;
 
@@ -267,10 +306,10 @@ void CONTROLLER::ctrl_loop() {
     //lee_position_controller_.CalculateRotorVelocities(&ref_rotor_velocities);
 
 
-    mes_p << _odom.pose.pose.position.x, _odom.pose.pose.position.y, _odom.pose.pose.position.z;
-    mes_dp << _odom.twist.twist.linear.x, _odom.twist.twist.linear.y, _odom.twist.twist.linear.z; 
-    mes_q = Eigen::Quaterniond( _odom.pose.pose.orientation.w, _odom.pose.pose.orientation.x, _odom.pose.pose.orientation.y, _odom.pose.pose.orientation.z );
-    mes_w << _odom.twist.twist.angular.x, _odom.twist.twist.angular.y, _odom.twist.twist.angular.z;  
+    //mes_p << _odom.pose.pose.position.x, _odom.pose.pose.position.y, _odom.pose.pose.position.z;
+    //mes_dp << _odom.twist.twist.linear.x, _odom.twist.twist.linear.y, _odom.twist.twist.linear.z; 
+    //mes_q = Eigen::Quaterniond( _odom.pose.pose.orientation.w, _odom.pose.pose.orientation.x, _odom.pose.pose.orientation.y, _odom.pose.pose.orientation.z );
+    //mes_w << _odom.twist.twist.angular.x, _odom.twist.twist.angular.y, _odom.twist.twist.angular.z;  
     
     lc.controller( _motor_num, mes_p, des_p, mes_q, mes_dp, des_dp, des_ddp, des_yaw, mes_w,
                                             position_gain, velocity_gain, normalized_attitude_gain, normalized_angular_rate_gain, wd2rpm, mass, gravity, &ref_rotor_velocities);
@@ -283,12 +322,15 @@ void CONTROLLER::ctrl_loop() {
     for (int i = 0; i < ref_rotor_velocities.size(); i++)
       actuator_msg->angular_velocities.push_back(ref_rotor_velocities[i]);
     
+
+    //cout << "ref_rotor_velocities: " << ref_rotor_velocities << endl;
+
     _motor_velocity_reference_pub.publish(actuator_msg);
     motor_vel.data[0] = ref_rotor_velocities[0];
     motor_vel.data[1] = ref_rotor_velocities[1];
     motor_vel.data[2] = ref_rotor_velocities[2];
     motor_vel.data[3] = ref_rotor_velocities[3];
-    _cmd_vel_motor_pub.publish( motor_vel );
+    //_cmd_vel_motor_pub.publish( motor_vel );
 
     r.sleep();
   }
@@ -298,7 +340,7 @@ void CONTROLLER::ctrl_loop() {
 
 void CONTROLLER::OdometryCallback(const nav_msgs::Odometry odometry_msg) {
     _odom = odometry_msg;
-    _first_odom = true;
+    //_first_odom = true;
 
 }
 
