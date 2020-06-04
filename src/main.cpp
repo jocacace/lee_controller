@@ -135,18 +135,18 @@ bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor
     double direction = 1.0;
 
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = -direction * force_k * moment_k;
-    allocation_M(3, i) = force_k;
+    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = direction * force_k * moment_k;
+    allocation_M(3, i) = -force_k;
 
     i++;
     rotor_angle = 2.565;
     arm_length = 0.238;
     direction = 1.0;
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = -direction * force_k * moment_k;
-    allocation_M(3, i) = force_k;
+    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = direction * force_k * moment_k;
+    allocation_M(3, i) = -force_k;
 
 
     i++;
@@ -154,9 +154,9 @@ bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor
     arm_length = 0.255;
     direction = -1.0;
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = -direction * force_k * moment_k;
-    allocation_M(3, i) = force_k;
+    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = direction * force_k * moment_k;
+    allocation_M(3, i) = -force_k;
 
 
     i++; 
@@ -164,9 +164,9 @@ bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor
     arm_length = 0.238;
     direction = -1.0;
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = -direction * force_k * moment_k;
-    allocation_M(3, i) = force_k;
+    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = direction * force_k * moment_k;
+    allocation_M(3, i) = -force_k;
     /*
     for(int i=0; i<_motor_size; i++) {
 
@@ -253,7 +253,8 @@ void CONTROLLER::ctrl_loop() {
   Eigen::MatrixXd wd2rpm;
 
 
-  inertia = Eigen::Matrix3d( Eigen::Vector3d( 0.0347563, 0.0458929, 0.0977 ).asDiagonal() );
+  //inertia = Eigen::Matrix3d( Eigen::Vector3d( 0.0347563, 0.0458929, 0.0977 ).asDiagonal() );
+    inertia = Eigen::Matrix3d( Eigen::Vector3d( 0.0347563, 0.0458929, 0.0977 ).asDiagonal() );
 
   attitude_gain << 2, 3, 0.15;
   angular_rate_gain << 0.4, 0.52, 0.18;
@@ -265,6 +266,8 @@ void CONTROLLER::ctrl_loop() {
                                 
   normalized_attitude_gain = attitude_gain.transpose() * inertia.inverse();
   normalized_angular_rate_gain = angular_rate_gain.transpose() * inertia.inverse();
+   // normalized_attitude_gain = attitude_gain;
+   // normalized_angular_rate_gain = angular_rate_gain;
 
                                 
   position_gain << 6, 6, 6;
@@ -273,7 +276,7 @@ void CONTROLLER::ctrl_loop() {
   angular_rate_gain << 0.4, 0.52, 0.18;
   
   double mass = 1.57;
-  double gravity = -9.81;
+  double gravity = 9.81;
   double des_yaw = 0.0;
   //while( !_first_odom ) usleep(0.1*1e6);
   while( !_first_vel || !_first_pos ) usleep(0.1*1e6);
@@ -291,8 +294,9 @@ void CONTROLLER::ctrl_loop() {
   I.block<3, 3>(0, 0) = inertia;
   I(3, 3) = 1;
 
-  wd2rpm = allocation_M.transpose() * (allocation_M*allocation_M.transpose()).inverse()*I;    
 
+    cout << "allocation_M: " << allocation_M << endl;
+  wd2rpm = allocation_M.transpose() * (allocation_M*allocation_M.transpose()).inverse()*I;    
   LEE_CONTROLLER lc;
 
   std_msgs::Float32MultiArray motor_vel;
@@ -300,6 +304,14 @@ void CONTROLLER::ctrl_loop() {
 
   while( ros::ok() ) {
 
+
+
+
+    //Eigen::Matrix3d R = mes_q.toRotationMatrix();
+    //cout << "R: " << endl << R << endl;
+    //Eigen::Vector3d ea = R.eulerAngles(0,1,2); 
+    //cout << "to Euler angles:" << endl;
+    //cout << ea << endl << endl;
 
 
     Eigen::VectorXd ref_rotor_velocities;
@@ -330,7 +342,7 @@ void CONTROLLER::ctrl_loop() {
     motor_vel.data[1] = ref_rotor_velocities[1];
     motor_vel.data[2] = ref_rotor_velocities[2];
     motor_vel.data[3] = ref_rotor_velocities[3];
-    //_cmd_vel_motor_pub.publish( motor_vel );
+    _cmd_vel_motor_pub.publish( motor_vel );
 
     r.sleep();
   }
