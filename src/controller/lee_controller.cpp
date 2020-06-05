@@ -2,7 +2,6 @@
 
 
 
-
 LEE_CONTROLLER::LEE_CONTROLLER() {
 
 }
@@ -35,11 +34,12 @@ void LEE_CONTROLLER::controller(    int _motor_num,
     //Body frame position error
     position_error = mes_p - des_p;
    
-    // Transform velocity to world frame.
-    const Eigen::Matrix3d R_W_I = mes_q.toRotationMatrix();
-    Eigen::Vector3d velocity_W =  R_W_I * mes_dp;
+    // Transform velocity to world fram\e.
+    //const Eigen::Matrix3d R_W_I = mes_q.toRotationMatrix();
+    //Eigen::Vector3d velocity_W =  R_W_I * mes_dp;
     Eigen::Vector3d velocity_error;
-    velocity_error = velocity_W - des_dp;
+    //velocity_error = velocity_W - des_dp;
+    velocity_error = mes_dp - des_dp;
     Eigen::Vector3d e_3(Eigen::Vector3d::UnitZ());
 
     acceleration = (position_error.cwiseProduct(position_gain)
@@ -77,13 +77,15 @@ void LEE_CONTROLLER::controller(    int _motor_num,
     angle_error << angle_error_matrix(2, 1), angle_error_matrix(0,2), angle_error_matrix(1, 0);
     
     Eigen::Vector3d angular_rate_des(Eigen::Vector3d::Zero());
-    angular_rate_des[2] = des_yaw;
+    angular_rate_des[2] = 0.1*des_yaw;
+ 
 
-    Eigen::Vector3d angular_rate_error = mes_w - R_des.transpose() * R * angular_rate_des;
+    const Eigen::Matrix3d R_W_I = mes_q.toRotationMatrix();
+    Eigen::Vector3d angular_rate_error = R_W_I.transpose()*mes_w - R_des.transpose() * R * angular_rate_des;
 
     angular_acceleration = -1 * angle_error.cwiseProduct(normalized_attitude_gain)
                             - angular_rate_error.cwiseProduct(normalized_angular_rate_gain)
-                            + mes_w.cross(mes_w); // we don't need the inertia matrix here
+                            + R_W_I.transpose()*mes_w.cross(R_W_I.transpose()*mes_w); // we don't need the inertia matrix here
 
 
 
@@ -93,6 +95,7 @@ void LEE_CONTROLLER::controller(    int _motor_num,
     Eigen::Vector4d angular_acceleration_thrust;
     angular_acceleration_thrust.block<3, 1>(0, 0) = angular_acceleration;
     angular_acceleration_thrust(3) = thrust;
+
 
     //std::cout << "2rpm: " << wd2rpm << std::endl;
     //std::cout << "angular_acc_to_rotor_velocities_: " << angular_acc_to_rotor_velocities_ << std::endl;

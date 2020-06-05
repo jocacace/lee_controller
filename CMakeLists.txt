@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   sensor_msgs
   gazebo_msgs
+  motion_planner
 )
 
 ## System dependencies are found with CMake's conventions
@@ -137,4 +138,4 @@ include_directories(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable( lee_controller src/main.cpp src/controller/lee_controller.cpp)
-target_link_libraries( lee_controller ${catkin_LIBRARIES}  )
+target_link_libraries( lee_controller ${catkin_LIBRARIES}   )

@@ -6,9 +6,57 @@
 #include <mav_msgs/Actuators.h>
 #include "gazebo_msgs/ModelStates.h"
 #include "std_msgs/Float32MultiArray.h"
+#include "motion_planner/generate_plan.h"
+#include "tf/tf.h"
 
 using namespace std;
+using namespace Eigen;
 
+
+inline Matrix3d QuatToMat(Vector4d Quat){
+		Matrix3d Rot;
+		float s = Quat[0];
+		float x = Quat[1];
+		float y = Quat[2];
+		float z = Quat[3];
+		Rot << 1-2*(y*y+z*z),2*(x*y-s*z),2*(x*z+s*y),
+		2*(x*y+s*z),1-2*(x*x+z*z),2*(y*z-s*x),
+		2*(x*z-s*y),2*(y*z+s*x),1-2*(x*x+y*y);
+		return Rot;
+	}
+	
+	
+
+inline Vector3d R2XYZ(Matrix3d R) {
+    double phi=0.0, theta=0.0, psi=0.0;
+    Vector3d XYZ = Vector3d::Zero();
+    
+    theta = asin(R(0,2));
+    
+    if(fabsf(cos(theta))>pow(10.0,-10.0))
+    {
+        phi=atan2(-R(1,2)/cos(theta), R(2,2)/cos(theta));
+        psi=atan2(-R(0,1)/cos(theta), R(0,0)/cos(theta));
+    }
+    else
+    {
+        if(fabsf(theta-M_PI/2.0)<pow(10.0,-5.0))
+        {
+            psi = 0.0;
+            phi = atan2(R(1,0), R(2,0));
+            theta = M_PI/2.0;
+        }
+        else
+        {
+            psi = 0.0;
+            phi = atan2(-R(1,0), R(2,0));
+            theta = -M_PI/2.0;
+        }
+    }
+    
+    XYZ << phi,theta,psi;
+    return XYZ;
+}
 class CONTROLLER {
 
     public:
@@ -193,7 +241,7 @@ void CONTROLLER::ctrl_loop() {
   Eigen::Vector3d des_dp; 
   Eigen::Vector3d des_ddp; 
 
-  des_p << 2.0, 0.0, 1.0;
+  des_p << 0.0, 0.0, 1.0;
   des_dp << 0.0, 0.0, 0.0;
   des_ddp << 0.0, 0.0, 0.0;
   
@@ -236,10 +284,13 @@ void CONTROLLER::ctrl_loop() {
   
   double mass = 1.57;
   double gravity = 9.81;
-  double des_yaw = 0.0;
+
+
   while( !_first_odom ) usleep(0.1*1e6);
 
+  Vector3d eu = R2XYZ( QuatToMat ( Vector4d( _odom.pose.pose.orientation.w,  _odom.pose.pose.orientation.x, _odom.pose.pose.orientation.y, _odom.pose.pose.orientation.z ) ) );
 
+  double des_yaw = eu(2);
   if( !get_allocation_matrix( allocation_M, _motor_num ) ) exit(0);
   else cout << "Matrix: " << allocation_M << endl;
   //exit(0);
@@ -259,12 +310,56 @@ void CONTROLLER::ctrl_loop() {
   std_msgs::Float32MultiArray motor_vel;
   motor_vel.data.resize(4);
 
-  while( ros::ok() ) {
+
+    
+  ros::ServiceClient client = _nh.serviceClient<motion_planner::generate_plan>("generate_tarjectory");
+  motion_planner::generate_plan plan;
+  
+  
+    plan.request.p_i.position.x = _odom.pose.pose.position.x;
+    plan.request.p_i.position.y = _odom.pose.pose.position.y;
+    plan.request.p_i.position.z = _odom.pose.pose.position.z;
+
+    tf::Quaternion q;
+    q.setRPY(0, 0, eu(2));
+    q = q.normalize();
+
+    plan.request.p_i.orientation.w = q.w();
+    plan.request.p_i.orientation.x = q.x();
+    plan.request.p_i.orientation.y = q.y();
+    plan.request.p_i.orientation.z = q.z();
 
 
+    plan.request.p_f.position.x = 2; //_odom.pose.pose.position.x;
+    plan.request.p_f.position.y = _odom.pose.pose.position.y;
+    plan.request.p_f.position.z = 2; //_odom.pose.pose.position.z;
+
+
+    plan.request.p_f.orientation.w = 1;
+    plan.request.p_f.orientation.x = 0.0;
+    plan.request.p_f.orientation.y = 0.0;
+    plan.request.p_f.orientation.z = 0.0;
+  
+
+    if( client.call( plan ) ) {
+        cout << "Planned!" << endl;
+    }
+    else {
+        exit(0);
+    }
+ // while( ros::ok() ) {
+
+      
 
     Eigen::VectorXd ref_rotor_velocities;
     //lee_position_controller_.CalculateRotorVelocities(&ref_rotor_velocities);
+
+    for(int i=0; i<plan.response.traj.points[0].positions.size(); i++ ) {
+
+        des_p << plan.response.traj.points[0].positions[i],  plan.response.traj.points[1].positions[i], plan.response.traj.points[2].positions[i];
+        des_yaw = plan.response.traj.points[3].positions[i];
+
+
 
 
     mes_p << _odom.pose.pose.position.x, _odom.pose.pose.position.y, _odom.pose.pose.position.z;
@@ -291,7 +386,9 @@ void CONTROLLER::ctrl_loop() {
     _cmd_vel_motor_pub.publish( motor_vel );
 
     r.sleep();
-  }
+   }
+
+//  }
 
 
 }

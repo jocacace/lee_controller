@@ -65,6 +65,10 @@
   <exec_depend>roscpp</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
 
+  <build_depend>motion_planner</build_depend>
+  <exec_depend>motion_planner</exec_depend>
+
+
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>
