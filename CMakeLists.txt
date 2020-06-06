@@ -9,7 +9,6 @@ project(lee_controller)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
-  mav_msgs
   nav_msgs
   roscpp
   sensor_msgs
@@ -17,6 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
   motion_planner
 )
 
+include_directories(/usr/include/eigen3)
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 

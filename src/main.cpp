@@ -3,7 +3,6 @@
 #include "nav_msgs/Odometry.h"
 #include "boost/thread.hpp"
 #include <Eigen/Eigen>
-#include <mav_msgs/Actuators.h>
 #include "gazebo_msgs/ModelStates.h"
 #include "std_msgs/Float32MultiArray.h"
 #include "motion_planner/generate_plan.h"
@@ -178,7 +177,6 @@ CONTROLLER::CONTROLLER(): _first_odom(false), _new_plan(false) {
 
     //_odom_sub = _nh.subscribe("/iris/odometry_sensor1/odometry", 0, &CONTROLLER::OdometryCallback, this);
     _model_state_sub = _nh.subscribe("/gazebo/model_states", 0, &CONTROLLER::ModelStateCb, this);
-    _motor_velocity_reference_pub = _nh.advertise<mav_msgs::Actuators>("/iris/command/motor_speed", 1);
     _cmd_vel_motor_pub = _nh.advertise<std_msgs::Float32MultiArray>("/iris_smc/cmd/motor_vel", 0);
 }
 
@@ -237,8 +235,7 @@ void CONTROLLER::ModelStateCb( gazebo_msgs::ModelStates ms ) {
 
     nav_msgs::Odometry gazebo_odom;
     while(!found && index < ms.name.size()) {
-        if( ms.name[index] == "ir
-        is_smc" ) {
+        if( ms.name[index] == "iris_smc" ) {
             found = true;
         }
         else index++;
@@ -282,19 +279,19 @@ bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor
     double moment_k = 1.6e-2;
     double direction = 1.0;
 
-    allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = direction * force_k * moment_k;
-    allocation_M(3, i) = -force_k;
+     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
+    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = -direction * force_k * moment_k;
+    allocation_M(3, i) = force_k;
 
     i++;
     rotor_angle = 2.565;
     arm_length = 0.238;
     direction = 1.0;
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = direction * force_k * moment_k;
-    allocation_M(3, i) = -force_k;
+    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = -direction * force_k * moment_k;
+    allocation_M(3, i) = force_k;
 
 
     i++;
@@ -302,9 +299,9 @@ bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor
     arm_length = 0.255;
     direction = -1.0;
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = direction * force_k * moment_k;
-    allocation_M(3, i) = -force_k;
+    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = -direction * force_k * moment_k;
+    allocation_M(3, i) = force_k;
 
 
     i++; 
@@ -312,9 +309,9 @@ bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor
     arm_length = 0.238;
     direction = -1.0;
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = direction * force_k * moment_k;
-    allocation_M(3, i) = -force_k;
+    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = -direction * force_k * moment_k;
+    allocation_M(3, i) = force_k;
     /*
     for(int i=0; i<_motor_size; i++) {
 
@@ -500,14 +497,8 @@ void CONTROLLER::ctrl_loop() {
                                             position_gain, velocity_gain, normalized_attitude_gain, normalized_angular_rate_gain, wd2rpm, mass, gravity, &ref_rotor_velocities);
     
 
-
-
-    mav_msgs::ActuatorsPtr actuator_msg(new mav_msgs::Actuators);
-    actuator_msg->angular_velocities.clear();
-    for (int i = 0; i < ref_rotor_velocities.size(); i++)
-      actuator_msg->angular_velocities.push_back(ref_rotor_velocities[i]);
     
-    _motor_velocity_reference_pub.publish(actuator_msg);
+
     motor_vel.data[0] = ref_rotor_velocities[0];
     motor_vel.data[1] = ref_rotor_velocities[1];
     motor_vel.data[2] = ref_rotor_velocities[2];

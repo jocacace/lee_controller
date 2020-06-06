@@ -2,7 +2,6 @@
 #include "nav_msgs/Odometry.h"
 #include "boost/thread.hpp"
 #include <Eigen/Eigen>
-#include <mav_msgs/Actuators.h>
 
 
 

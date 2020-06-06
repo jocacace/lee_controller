@@ -34,11 +34,7 @@ void LEE_CONTROLLER::controller(    int _motor_num,
     //Body frame position error
     position_error = mes_p - des_p;
    
-    // Transform velocity to world fram\e.
-    //const Eigen::Matrix3d R_W_I = mes_q.toRotationMatrix();
-    //Eigen::Vector3d velocity_W =  R_W_I * mes_dp;
     Eigen::Vector3d velocity_error;
-    //velocity_error = velocity_W - des_dp;
     velocity_error = mes_dp - des_dp;
     Eigen::Vector3d e_3(Eigen::Vector3d::UnitZ());
 
@@ -81,11 +77,11 @@ void LEE_CONTROLLER::controller(    int _motor_num,
  
 
     const Eigen::Matrix3d R_W_I = mes_q.toRotationMatrix();
-    Eigen::Vector3d angular_rate_error = R_W_I.transpose()*mes_w - R_des.transpose() * R * angular_rate_des;
+    Eigen::Vector3d angular_rate_error = mes_w - R_des.transpose() * R * angular_rate_des;
 
     angular_acceleration = -1 * angle_error.cwiseProduct(normalized_attitude_gain)
                             - angular_rate_error.cwiseProduct(normalized_angular_rate_gain)
-                            + R_W_I.transpose()*mes_w.cross(R_W_I.transpose()*mes_w); // we don't need the inertia matrix here
+                            + mes_w.cross(mes_w); // we don't need the inertia matrix here
 
 
 
