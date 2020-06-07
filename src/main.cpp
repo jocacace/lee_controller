@@ -152,7 +152,6 @@ class CONTROLLER {
         void OdometryCallback(const nav_msgs::Odometry odometry_msg);
         void ctrl_loop();
         bool get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor_size );
-        void ModelStateCb( gazebo_msgs::ModelStates ms );
         void request_new_plan();
 
     private:
@@ -174,9 +173,7 @@ class CONTROLLER {
 
 
 CONTROLLER::CONTROLLER(): _first_odom(false), _new_plan(false) {
-
-    //_odom_sub = _nh.subscribe("/iris/odometry_sensor1/odometry", 0, &CONTROLLER::OdometryCallback, this);
-    _model_state_sub = _nh.subscribe("/gazebo/model_states", 0, &CONTROLLER::ModelStateCb, this);
+    _odom_sub = _nh.subscribe("/iris_smc/odometry", 0, &CONTROLLER::OdometryCallback, this);
     _cmd_vel_motor_pub = _nh.advertise<std_msgs::Float32MultiArray>("/iris_smc/cmd/motor_vel", 0);
 }
 
@@ -225,47 +222,6 @@ void CONTROLLER::request_new_plan() {
           _new_plan = true;
         }        
     }
-}
-
-void CONTROLLER::ModelStateCb( gazebo_msgs::ModelStates ms ) {
-    
-
-    bool found = false;
-    int index = 0;
-
-    nav_msgs::Odometry gazebo_odom;
-    while(!found && index < ms.name.size()) {
-        if( ms.name[index] == "iris_smc" ) {
-            found = true;
-        }
-        else index++;
-    }
-
-    if( found ) {
-
-        gazebo_odom.pose.pose.position.x = ms.pose[index].position.x;
-        gazebo_odom.pose.pose.position.y = ms.pose[index].position.y;
-        gazebo_odom.pose.pose.position.z = ms.pose[index].position.z;
-
-        gazebo_odom.pose.pose.orientation.w = ms.pose[index].orientation.w;
-        gazebo_odom.pose.pose.orientation.x = ms.pose[index].orientation.x;
-        gazebo_odom.pose.pose.orientation.y = ms.pose[index].orientation.y;
-        gazebo_odom.pose.pose.orientation.z = ms.pose[index].orientation.z;
-
-
-        gazebo_odom.twist.twist.linear.x = ms.twist[index].linear.x;
-        gazebo_odom.twist.twist.linear.y = ms.twist[index].linear.y;
-        gazebo_odom.twist.twist.linear.z = ms.twist[index].linear.z;
-
-        gazebo_odom.twist.twist.angular.x = ms.twist[index].angular.x;
-        gazebo_odom.twist.twist.angular.y = ms.twist[index].angular.y;
-        gazebo_odom.twist.twist.angular.z = ms.twist[index].angular.z;
-
-
-        _first_odom = true;
-        _odom = gazebo_odom;
-    }
-
 }
 
 bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor_size ) {
