@@ -235,19 +235,20 @@ bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor
     double moment_k = 1.6e-2;
     double direction = 1.0;
 
-     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = -direction * force_k * moment_k;
-    allocation_M(3, i) = force_k;
+    
+    allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
+    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = direction * force_k * moment_k;
+    allocation_M(3, i) = -force_k;
 
     i++;
     rotor_angle = 2.565;
     arm_length = 0.238;
     direction = 1.0;
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = -direction * force_k * moment_k;
-    allocation_M(3, i) = force_k;
+    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = direction * force_k * moment_k;
+    allocation_M(3, i) = -force_k;
 
 
     i++;
@@ -255,9 +256,9 @@ bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor
     arm_length = 0.255;
     direction = -1.0;
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = -direction * force_k * moment_k;
-    allocation_M(3, i) = force_k;
+    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = direction * force_k * moment_k;
+    allocation_M(3, i) = -force_k;
 
 
     i++; 
@@ -265,9 +266,9 @@ bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor
     arm_length = 0.238;
     direction = -1.0;
     allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = -direction * force_k * moment_k;
-    allocation_M(3, i) = force_k;
+    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
+    allocation_M(2, i) = direction * force_k * moment_k;
+    allocation_M(3, i) = -force_k;
     /*
     for(int i=0; i<_motor_size; i++) {
 

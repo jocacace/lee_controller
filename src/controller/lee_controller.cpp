@@ -1,6 +1,8 @@
 #include "lee_controller.h"
 
 
+using namespace std;
+
 
 LEE_CONTROLLER::LEE_CONTROLLER() {
 
@@ -38,12 +40,14 @@ void LEE_CONTROLLER::controller(    int _motor_num,
     velocity_error = mes_dp - des_dp;
     Eigen::Vector3d e_3(Eigen::Vector3d::UnitZ());
 
-    acceleration = (position_error.cwiseProduct(position_gain)
+    acceleration = -(position_error.cwiseProduct(position_gain)
       + velocity_error.cwiseProduct(velocity_gain)) / mass
       - gravity * e_3 - des_ddp;
 
     
 
+
+    cout << "acceleration: " << acceleration << endl;
 
     Eigen::Vector3d angular_acceleration;
     //ComputeDesiredAngularAcc(acceleration, &angular_acceleration);
@@ -86,7 +90,7 @@ void LEE_CONTROLLER::controller(    int _motor_num,
 
 
     // Project thrust onto body z axis.
-    double thrust = -mass * acceleration.dot( mes_q.toRotationMatrix().col(2));
+    double thrust = mass * acceleration.dot( mes_q.toRotationMatrix().col(2));
 
     Eigen::Vector4d angular_acceleration_thrust;
     angular_acceleration_thrust.block<3, 1>(0, 0) = angular_acceleration;
@@ -98,4 +102,6 @@ void LEE_CONTROLLER::controller(    int _motor_num,
     *rotor_velocities = wd2rpm * angular_acceleration_thrust;
     *rotor_velocities = rotor_velocities->cwiseMax(Eigen::VectorXd::Zero(rotor_velocities->rows()));
     *rotor_velocities = rotor_velocities->cwiseSqrt();
+
+    cout << "rotor_velocities: " << rotor_velocities->transpose() << endl;
   }
