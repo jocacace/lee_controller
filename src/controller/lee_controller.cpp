@@ -4,12 +4,29 @@
 using namespace std;
 
 
-LEE_CONTROLLER::LEE_CONTROLLER() {
+LEE_CONTROLLER::LEE_CONTROLLER() {}
 
+
+void LEE_CONTROLLER::set_allocation_matrix(  Eigen::MatrixXd allocation_M ) {
+  _wd2rpm = allocation_M.transpose() * (allocation_M*allocation_M.transpose()).inverse()*_I;    
 }
 
-void LEE_CONTROLLER::controller(    int _motor_num,
-                                    Eigen::Vector3d mes_p, 
+void LEE_CONTROLLER::set_uav_dynamics (int motor_num, double mass, double gravity, Eigen::Matrix4d I) {
+  _mass = mass;
+  _gravity = gravity;
+  _I = I;
+  _motor_num = motor_num;
+}
+
+void LEE_CONTROLLER::set_controller_gains(Eigen::Vector3d kp, Eigen::Vector3d kd, Eigen::Vector3d attitude_gain, Eigen::Vector3d angular_rate_gain ) {
+  _kp = kp;
+  _kd = kd;
+  _attitude_gain = attitude_gain;
+  _angular_rate_gain = angular_rate_gain;
+}
+
+
+void LEE_CONTROLLER::controller(    Eigen::Vector3d mes_p, 
                                     Eigen::Vector3d des_p,  
                                     Eigen::Quaterniond mes_q,
                                     Eigen::Vector3d mes_dp, 
@@ -17,44 +34,32 @@ void LEE_CONTROLLER::controller(    int _motor_num,
                                     Eigen::Vector3d des_ddp,
                                     double des_yaw,
                                     Eigen::Vector3d mes_w,
-                                    Eigen::Vector3d position_gain,
-                                    Eigen::Vector3d velocity_gain,
-                                    Eigen::Vector3d normalized_attitude_gain,
-                                    Eigen::Vector3d normalized_angular_rate_gain,
-                                    Eigen::MatrixXd wd2rpm,
-                                    double mass,
-                                    double gravity,                                 
                                     Eigen::VectorXd* rotor_velocities) {
 
 
+    Eigen::Vector3d normalized_attitude_gain;
+    Eigen::Vector3d normalized_angular_rate_gain;
+    normalized_attitude_gain = _attitude_gain.transpose() * _I.block(0,0,3,3).inverse();
+    normalized_angular_rate_gain = _angular_rate_gain.transpose() * _I.block(0,0,3,3).inverse();
+
+
     rotor_velocities->resize(_motor_num);
+    Eigen::Vector3d e_3(Eigen::Vector3d::UnitZ());
   
     Eigen::Vector3d acceleration;
-    //ComputeDesiredAcceleration(&acceleration);
-
     Eigen::Vector3d position_error;
-    //Body frame position error
     position_error = mes_p - des_p;
    
     Eigen::Vector3d velocity_error;
     velocity_error = mes_dp - des_dp;
-    Eigen::Vector3d e_3(Eigen::Vector3d::UnitZ());
 
-    acceleration = -(position_error.cwiseProduct(position_gain)
-      + velocity_error.cwiseProduct(velocity_gain)) / mass
-      - gravity * e_3 - des_ddp;
-
+    acceleration = -(position_error.cwiseProduct(_kp)
+      + velocity_error.cwiseProduct(_kd)) / _mass
+      - _gravity * e_3 - des_ddp;
+  
     
-
-
-    cout << "acceleration: " << acceleration << endl;
-
     Eigen::Vector3d angular_acceleration;
-    //ComputeDesiredAngularAcc(acceleration, &angular_acceleration);
-
     Eigen::Matrix3d R = mes_q.toRotationMatrix();
-
-    // Get the desired rotation matrix.
     Eigen::Vector3d b1_des;
     double yaw = des_yaw;
     b1_des << cos(yaw), sin(yaw), 0;
@@ -76,6 +81,7 @@ void LEE_CONTROLLER::controller(    int _motor_num,
     Eigen::Vector3d angle_error;
     angle_error << angle_error_matrix(2, 1), angle_error_matrix(0,2), angle_error_matrix(1, 0);
     
+
     Eigen::Vector3d angular_rate_des(Eigen::Vector3d::Zero());
     angular_rate_des[2] = 0.1*des_yaw;
  
@@ -89,19 +95,15 @@ void LEE_CONTROLLER::controller(    int _motor_num,
 
 
 
-    // Project thrust onto body z axis.
-    double thrust = mass * acceleration.dot( mes_q.toRotationMatrix().col(2));
+    double thrust = _mass * acceleration.dot( mes_q.toRotationMatrix().col(2));
 
     Eigen::Vector4d angular_acceleration_thrust;
     angular_acceleration_thrust.block<3, 1>(0, 0) = angular_acceleration;
     angular_acceleration_thrust(3) = thrust;
 
 
-    //std::cout << "2rpm: " << wd2rpm << std::endl;
-    //std::cout << "angular_acc_to_rotor_velocities_: " << angular_acc_to_rotor_velocities_ << std::endl;
-    *rotor_velocities = wd2rpm * angular_acceleration_thrust;
+    *rotor_velocities = _wd2rpm * angular_acceleration_thrust;
     *rotor_velocities = rotor_velocities->cwiseMax(Eigen::VectorXd::Zero(rotor_velocities->rows()));
     *rotor_velocities = rotor_velocities->cwiseSqrt();
-
-    cout << "rotor_velocities: " << rotor_velocities->transpose() << endl;
-  }
+  
+}

@@ -9,7 +9,7 @@ class LEE_CONTROLLER {
 
     public:
         LEE_CONTROLLER();
-        void controller(int _motor_num,
+        void controller(
                         Eigen::Vector3d mes_p, 
                         Eigen::Vector3d des_p,  
                         Eigen::Quaterniond mes_q,
@@ -18,17 +18,24 @@ class LEE_CONTROLLER {
                         Eigen::Vector3d des_ddp,
                         double des_yaw,
                         Eigen::Vector3d mes_w,
-                        Eigen::Vector3d position_gain,
-                        Eigen::Vector3d velocity_gain,
-                        Eigen::Vector3d normalized_attitude_gain,
-                        Eigen::Vector3d normalized_angular_rate_gain,
-                        Eigen::MatrixXd wd2rpm,
-                        double mass,
-                        double gravity,                                    
                         Eigen::VectorXd* rotor_velocities );
+
+        void set_allocation_matrix( Eigen::MatrixXd allocation_M );
+        void set_controller_gains(Eigen::Vector3d kp, Eigen::Vector3d kd, Eigen::Vector3d attitude_gain, Eigen::Vector3d angular_rate_gain );
+        void set_uav_dynamics (int _motor_num, double mass, double gravity, Eigen::Matrix4d I);
 
 
     private:
 
-
+        Eigen::Vector3d _kp;
+        Eigen::Vector3d _kd;
+        Eigen::Vector3d _attitude_gain;
+        Eigen::Vector3d _angular_rate_gain;
+        Eigen::MatrixXd _wd2rpm;
+        Eigen::Matrix4d _I;
+        double _mass;
+        double _gravity;
+        Eigen::Vector3d normalized_attitude_gain;
+        Eigen::Vector3d normalized_angular_rate_gain;
+        int _motor_num;
 };
