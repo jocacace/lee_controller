@@ -1,0 +1,16 @@
+model_name: firefly
+control_rate: 100
+motor_num: 6
+inertia: [0.0347563, 0.0458929, 0.0977]
+kp: [3, 3, 3]
+kd: [4.7, 4.7, 4.7]
+attitude_gain: [2.0, 3.0, 0.15]
+angular_rate_gain: [0.52, 0.52, 0.18]
+mass: 1.5
+gravity: 9.81
+motor_force_k: 8.54858e-6
+motor_moment_k: 1.6e-2
+rotor_angle: [0.52359877559, 1.57079632679, 2.61799387799, -2.6179938779, -1.5707963267, -0.5235987755]
+arm_length:  [0.215, 0.215, 0.215, 0.215, 0.215, 0.215]
+motor_rotation_direction: [1, -1, 1, -1, 1, -1]
+

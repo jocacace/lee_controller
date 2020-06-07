@@ -508,7 +508,7 @@ void CONTROLLER::ctrl_loop() {
     lc.set_allocation_matrix( allocation_M );
 
     std_msgs::Float32MultiArray motor_vel;
-    motor_vel.data.resize(4);
+    motor_vel.data.resize( _motor_num );
     
     int plan_index = 0;
    
@@ -538,14 +538,17 @@ void CONTROLLER::ctrl_loop() {
         Eigen::Matrix3d R = mes_q.toRotationMatrix();
         mes_w = R.transpose()*mes_w;
 
+        //lc.controller( _motor_num, mes_p, des_p, mes_q, mes_dp, des_dp, des_ddp, des_yaw, mes_w,
+        //                                    _position_gain, _velocity_gain, normalized_attitude_gain, normalized_angular_rate_gain, wd2rpm, _mass, _gravity, &ref_rotor_velocities);
     
+
+
         lc.controller( mes_p, des_p, mes_q, mes_dp, des_dp, des_ddp, des_yaw, mes_w, &ref_rotor_velocities);
     
+        for(int i=0; i<motor_vel.data.size(); i++ ) {
+            motor_vel.data[i] = ref_rotor_velocities[i]; 
+        }
     
-        motor_vel.data[0] = ref_rotor_velocities[0];
-        motor_vel.data[1] = ref_rotor_velocities[1];
-        motor_vel.data[2] = ref_rotor_velocities[2];
-        motor_vel.data[3] = ref_rotor_velocities[3];
         _cmd_vel_motor_pub.publish( motor_vel );
 
         r.sleep();

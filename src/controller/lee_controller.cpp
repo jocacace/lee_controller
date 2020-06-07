@@ -26,6 +26,7 @@ void LEE_CONTROLLER::set_controller_gains(Eigen::Vector3d kp, Eigen::Vector3d kd
 }
 
 
+
 void LEE_CONTROLLER::controller(    Eigen::Vector3d mes_p, 
                                     Eigen::Vector3d des_p,  
                                     Eigen::Quaterniond mes_q,
@@ -106,4 +107,6 @@ void LEE_CONTROLLER::controller(    Eigen::Vector3d mes_p,
     *rotor_velocities = rotor_velocities->cwiseMax(Eigen::VectorXd::Zero(rotor_velocities->rows()));
     *rotor_velocities = rotor_velocities->cwiseSqrt();
   
+
+    
 }
