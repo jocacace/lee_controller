@@ -8,15 +8,19 @@ project(lee_controller)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
+  gazebo_msgs
   geometry_msgs
+  kdl_parser
+  message_generation
   nav_msgs
   roscpp
+  roslib
   sensor_msgs
-  gazebo_msgs
-  motion_planner
+  tf
+  tf_conversions
+  mav_msgs
 )
 
-include_directories(/usr/include/eigen3)
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -74,7 +78,7 @@ include_directories(/usr/include/eigen3)
 ## Generate added messages and services with any dependencies listed here
 # generate_messages(
 #   DEPENDENCIES
-#   geometry_msgs#   mav_msgs#   nav_msgs#   sensor_msgs
+#   gazebo_msgs#   geometry_msgs#   nav_msgs#   sensor_msgs
 # )
 
 ################################################
@@ -109,7 +113,7 @@ include_directories(/usr/include/eigen3)
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES lee_controller
-#  CATKIN_DEPENDS geometry_msgs mav_msgs nav_msgs roscpp sensor_msgs
+#  CATKIN_DEPENDS gazebo_msgs geometry_msgs kdl_parser message_generation nav_msgs roscpp roslib sensor_msgs tf tf_conversions
 #  DEPENDS system_lib
 )
 
@@ -137,5 +141,5 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable( lee_controller src/main.cpp src/controller/lee_controller.cpp)
-target_link_libraries( lee_controller ${catkin_LIBRARIES}   )
+add_executable(quad_control src/controller.cpp)
+target_link_libraries( quad_control ${catkin_LIBRARIES} )

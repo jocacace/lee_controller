@@ -1,0 +1,13 @@
+<?xml version="1.0" ?>
+
+<launch>
+
+  <rosparam command="load" file="$(find lee_controller)/config/quad.yaml" />
+	<node pkg="joy" name="joy_node" type="joy_node" output="screen">
+	</node>
+	
+	<node pkg="lee_controller" name="quad_control" type="quad_control" output="screen">
+	</node>
+	
+
+</launch>
