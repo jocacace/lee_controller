@@ -35,6 +35,7 @@ class QUAD_CTRL {
         void odom_cb( nav_msgs::OdometryConstPtr );
         void ffilter();
         void insert_dest(); //Temp
+        void extWesti();
     private:
 
         void updateError();
@@ -87,10 +88,56 @@ class QUAD_CTRL {
         mav_msgs::Actuators _comm;    
         double _ref_dyaw;
         double _ref_ddyaw;
+        VectorXd _Fe, _Fe_integral, _Fe_integral_out;
 };
 
 
+void QUAD_CTRL::extWesti() {
+  
+  
+  double zita_=1.0, omega_lin=10, omega_tor=10, omega_z=omega_tor;
+  MatrixXd zita(6,6), omega(6,6);
+  MatrixXd K1(6,6),K2(6,6);
 
+  zita.diagonal() << zita_,zita_,zita_,zita_,zita_,zita_;
+  omega.diagonal() << omega_lin,omega_lin,omega_z,omega_tor,omega_tor,omega_z;
+
+  K1 = 2*zita*omega;
+  K2 = omega*omega*K1.inverse();
+
+  Vector3d e3(0,0,1);
+ 
+  MatrixXd M_xi(6,6);
+  M_xi << _m*MatrixXd::Identity(3,3) , MatrixXd::Zero(3,3),
+      MatrixXd::Zero(3,3) , _I_b;
+
+  VectorXd alpha(6);
+  alpha.head(3)=_Rb.transpose()*_P_dot;
+  alpha.tail(3)=_wbb;
+
+  VectorXd internal(6);
+  internal.head(3) = -_uT*e3 + _m*9.81*_Rb.transpose()*e3;
+  internal.tail(3) = _tau_b - Skew(_wbb)*_I_b*_wbb;
+
+  _Fe_integral += ( internal + _Fe )*(1.0/_freq);
+  _Fe_integral_out += ( -_Fe + K2*( M_xi*alpha - _Fe_integral ) )*(1.0/_freq);
+  _Fe = K1*_Fe_integral_out;
+
+  cout << "_Fe: " << _Fe.transpose() << endl;
+/*
+  //Vector3d _Fe_b = _Rb.transpose()*_Fe.head(3);
+
+  geometry_msgs::WrenchStamped est_w;
+  est_w.header.stamp=ros::Time::now();
+  est_w.wrench.force.x = _Fe(0);
+  est_w.wrench.force.y = _Fe(1);
+  est_w.wrench.force.z = _Fe(2);
+  est_w.wrench.torque.x = _Fe(3);
+  est_w.wrench.torque.y = _Fe(4);
+  est_w.wrench.torque.z = _Fe(5);
+  _est_wrench_pub.publish(est_w);
+  */
+}
 
 void QUAD_CTRL::ffilter(){
   
@@ -274,8 +321,8 @@ void QUAD_CTRL::correctW(Vector4d & w2) {
 }
 
 QUAD_CTRL::QUAD_CTRL(double freq) { 
-    _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometry", 0, &QUAD_CTRL::odom_cb, this);
-    _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/hummingbird/command/motor_speed", 0);
+    _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometry", 1, &QUAD_CTRL::odom_cb, this);
+    _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/hummingbird/command/motor_speed", 1);
 
     _odomOk = false;
 
@@ -315,6 +362,13 @@ QUAD_CTRL::QUAD_CTRL(double freq) {
     _Kv = _Kp/1.5;
     _Kr = 4.0*Vector3d(30,30,30).asDiagonal();
     _Kw = _Kr/4;
+
+    _Fe.resize(6);
+    _Fe = Eigen::VectorXd::Zero(6);
+    _Fe_integral.resize(6);
+    _Fe_integral = Eigen::VectorXd::Zero(6);
+    _Fe_integral_out.resize(6);
+    _Fe_integral_out = Eigen::VectorXd::Zero(6);
   
     _Qdot.resize(3,3);
     _uT = 0;
@@ -476,6 +530,8 @@ void QUAD_CTRL::ctrl_loop() {
     controlInput(2) = _tau_b(1);
     controlInput(3) = _tau_b(2);
     w2 = _G.inverse() * controlInput;
+
+    extWesti();
 
     _comm.header.stamp = ros::Time::now();
 
