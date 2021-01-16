@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0.2)
 project(lee_controller)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -143,3 +143,8 @@ include_directories(
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(quad_control src/controller.cpp)
 target_link_libraries( quad_control ${catkin_LIBRARIES} )
+
+add_executable(manager_node src/network_manager.cpp)
+target_link_libraries( manager_node ${catkin_LIBRARIES} )
+
+

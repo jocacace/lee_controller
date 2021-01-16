@@ -71,6 +71,8 @@ namespace utilities{
 		return L;
 	}
 
+
+
 	inline Vector3d MatToRpy( Matrix3d R ) {
 
 		Vector3d rpy;
@@ -84,6 +86,7 @@ namespace utilities{
 	}
 
 
+	
 	inline Matrix3d RpyToMat( Vector3d rpy) {
 		double r, p, y;
 		r = rpy(0);
@@ -422,7 +425,14 @@ namespace utilities{
 		return Rot;
 	}
 	
-	
+	inline Vector3d quatToRpy( Vector4d q ) {
+		return utilities::MatToRpy( utilities::QuatToMat( q ) );	
+	}
+
+	inline Vector4d RpyToQuat( Vector3d rpy ) {
+		return utilities::rot2quat( utilities::RpyToMat( rpy ) );
+	}
+
 	inline float rad2deg(float rad){
 		float deg;
 		deg = 180.0*rad/M_PI;

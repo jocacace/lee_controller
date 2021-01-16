@@ -1,11 +1,16 @@
-ref_jerk_max: 10.0
-ref_acc_max: 5.0
+ref_jerk_max: 1.0
+ref_acc_max: 0.5
 ref_vel_max: 1.0
 ref_omega: 1.0
-ref_zita: 0.7
+ref_zita: 0.8
+
 ref_o_jerk_max: 0.4
 ref_o_acc_max: 0.75
 ref_o_vel_max: 1.1
 ref_o_jerk_max: 2
 ref_o_acc_max:  1
 ref_o_vel_max:  0.3
+
+
+point_from_kb: True
+take_off_altitude: -0.6

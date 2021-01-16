@@ -9,6 +9,7 @@
 #include "utils.h"
 #include "std_msgs/Bool.h"
 #include "gazebo_msgs/ModelState.h"
+#include "geometry_msgs/Pose.h"
 #include "std_srvs/Empty.h"
 
 using namespace std;
@@ -44,6 +45,8 @@ class QUAD_CTRL {
         void extWesti();
         void sys_reset( std_msgs::Bool );
         void system_reset();
+        void cmd_publisher();
+        void goal_cb( geometry_msgs::Pose );
     private:
 
         void updateError();
@@ -52,9 +55,12 @@ class QUAD_CTRL {
         ros::NodeHandle _nh;
         ros::Subscriber _odom_sub;
         ros::Subscriber _system_reset_req;
+        ros::Subscriber _goal_sub;
         ros::Publisher _model_state_pub;
         ros::Publisher _cmd_vel_pub;
         ros::Publisher _controller_active;
+        ros::Publisher _land_state_pub;
+        ros::Publisher _NED_odom_pub;
         double _freq;
         Vector3d _P;
         Vector3d _P_dot;
@@ -104,7 +110,10 @@ class QUAD_CTRL {
         ros::ServiceClient _pause_phy;
         ros::ServiceClient _unpause_phy;
         bool _restarting;
-        
+
+        Vector4d _omega_motor;
+        bool _landed;
+        double _l_h; //Landing altitude        
 };
 
 
@@ -188,7 +197,6 @@ void QUAD_CTRL::ffilter(){
   if( !_nh.getParam("ref_zita", ref_zita)) {
       ref_zita = 0.5;
   }
-
   
   if( !_nh.getParam("ref_o_jerk_max", ref_o_jerk_max)) {
       ref_o_jerk_max = 0.35;
@@ -235,6 +243,8 @@ void QUAD_CTRL::ffilter(){
 
 
     if( _restarting) {
+
+      while( !_odomOk ) usleep(0.1*1e6);
       _cmd_p = _P;
       _ref_p = _P;
       ddp << 0.0, 0.0, 0.0;
@@ -252,8 +262,6 @@ void QUAD_CTRL::ffilter(){
     }
     else {
       ep = _cmd_p - _ref_p;
-      
-      cout << "ep " << ep.transpose() << endl;
       
       double eyaw = _yaw_cmd - _ref_yaw;
 
@@ -365,7 +373,9 @@ QUAD_CTRL::QUAD_CTRL(double freq) {
     _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/hummingbird/command/motor_speed", 1);
     _controller_active = _nh.advertise< std_msgs::Bool >("/lee/controller_active", 1);
     _model_state_pub = _nh.advertise< gazebo_msgs::ModelState >("/gazebo/set_model_state", 1);
-
+    _NED_odom_pub = _nh.advertise< geometry_msgs::Pose > ("/lee/pose/ned", 1);
+    _land_state_pub = _nh.advertise< std_msgs::Bool > ("/lee/landed", 1);
+    _goal_sub = _nh.subscribe< geometry_msgs::Pose > ("/lee/goal", 1, &QUAD_CTRL::goal_cb, this );
     _odomOk = false;
 
     _freq = freq;
@@ -420,18 +430,22 @@ QUAD_CTRL::QUAD_CTRL(double freq) {
     _cmd_dp << 0.0, 0.0, 0.0;
     _cmd_ddp << 0.0, 0.0, 0.0;
     _ref_yaw = 0.0;
-
+    _omega_motor << 0.0, 0.0, 0.0, 0.0;
+    
     _pause_phy = _nh.serviceClient<std_srvs::Empty>("/gazebo/pause_physics");
     _unpause_phy = _nh.serviceClient<std_srvs::Empty>("/gazebo/unpause_physics");
 
     _restarting = false;
+    _l_h = 0.25;
+    _landed = false;
 }
 
 void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
 
+    geometry_msgs::Pose odom_pose;
     tf::Matrix3x3 RNed;
     RNed.setEulerYPR(M_PI/2,0,M_PI);
-    //RNed = RNed.transpose();
+
     tf::Vector3 p;
     tf::Vector3 pDot;
     tf::Vector3 wbb;
@@ -444,7 +458,6 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
 
     RbNed.getRPY(_Eta(0), _Eta(1), _Eta(2)); //phi theta psi
 
-    
     tf::matrixTFToEigen (RbNed, _Rb);
     tf::matrixTFToEigen (RNed, _RNed);
 
@@ -464,10 +477,8 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     pDot[0] = odom->twist.twist.linear.x;
     pDot[1] = odom->twist.twist.linear.y;
     pDot[2] = odom->twist.twist.linear.z;
-    //cout<<odom->twist.twist.linear.x;
+
     pDot = RNed*Rb*pDot;
-    //cout<<pDot[0];
-    //pDot = RNed*Rb*pDot*RNed.transpose();
 
     _P_dot(0) = pDot[0];
     _P_dot(1) = pDot[1];
@@ -487,6 +498,25 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     _Qdot(1,0) = 0; _Qdot(1,1) = -sin(_Eta(0))*_Eta_dot(0); _Qdot(1,2) = -sin(_Eta(1))*sin(_Eta(0))*_Eta_dot(1) + cos(_Eta(1))*cos(_Eta(0))*_Eta_dot(0);
     _Qdot(2,0) = 0; _Qdot(2,1) = -cos(_Eta(0))*_Eta_dot(0); _Qdot(2,2) = -sin(_Eta(1))*cos(_Eta(0))*_Eta_dot(1) + -cos(_Eta(1))*sin(_Eta(0))*_Eta_dot(0);
 
+    Eigen::Matrix3d RNed_eigen;
+    for(int i=0; i<3; i++ ) {
+      for( int j=0; j<3; j++ ) {
+        RNed_eigen(i,j) = RbNed[i][j];
+      }
+    }
+
+    odom_pose.position.x = _P(0);
+    odom_pose.position.y = _P(1);
+    odom_pose.position.z = _P(2);
+
+    Vector4d q_eigen = utilities::rot2quat( RNed_eigen );
+    
+    odom_pose.orientation.w = q_eigen(0);
+    odom_pose.orientation.x = q_eigen(1);
+    odom_pose.orientation.y = q_eigen(2);
+    odom_pose.orientation.z = q_eigen(3);
+
+    _NED_odom_pub.publish( odom_pose ); 
     _odomOk = true;
 }
 
@@ -509,15 +539,7 @@ void QUAD_CTRL::system_reset() {
   s.twist.angular.x = 0.0;
   s.twist.angular.y = 0.0;
   s.twist.angular.z = 0.0;
-
-  _model_state_pub.publish( s );
-   
-  //stop simulation
-  std_srvs::Empty epause;
-  _pause_phy.call( epause );
-  cout << "pause called!" << endl;
   
-  ros::Rate r(5);
   for( int i=0; i<100; i++ ) {
     _model_state_pub.publish( s );
     usleep(0.01*1e6);
@@ -527,21 +549,32 @@ void QUAD_CTRL::system_reset() {
   _cmd_dp << 0.0, 0.0, 0.0;
   _cmd_ddp << 0.0, 0.0, 0.0;
   _ref_yaw = 0.0;
+}
 
-  _unpause_phy.call(epause);
-  cout << "unpause called!" << endl;
 
+
+
+void QUAD_CTRL::cmd_publisher() {
+
+  _comm.angular_velocities.resize(4);
+
+  ros::Rate r(300);
+  while( ros::ok() ) {
+    _comm.header.stamp = ros::Time::now();
+    _comm.angular_velocities[0] = _omega_motor(0);
+    _comm.angular_velocities[1] = _omega_motor(1);
+    _comm.angular_velocities[2] = _omega_motor(2);
+    _comm.angular_velocities[3] = _omega_motor(3);
+    _cmd_vel_pub.publish( _comm );
+
+    r.sleep();
+  }
 }
 
 void QUAD_CTRL::ctrl_loop() {
 
   ros::Rate r(_freq);
-
-  _comm.angular_velocities.resize(4);
-  _comm.angular_velocities[0] = 0;
-  _comm.angular_velocities[1] = 0;
-  _comm.angular_velocities[2] = 0;
-  _comm.angular_velocities[3] = 0;
+  _omega_motor << 0.0, 0.0, 0.0, 0.0;
   Vector4d w2, controlInput;
 
   Vector3d zb_des;
@@ -575,104 +608,116 @@ void QUAD_CTRL::ctrl_loop() {
     
     if( _sys_res == true ) {
 
+      //for(int i=0; i<10;i++ )  {
+        c_active.data = false;
+        _controller_active.publish( c_active );
+      //  usleep(0.1*1e6);
+      //}
       ROS_INFO("System reset");
       _restarting = true;
-      _comm.angular_velocities[0] = 0.0;
-      _comm.angular_velocities[1] = 0.0;
-      _comm.angular_velocities[2] = 0.0;
-      _comm.angular_velocities[3] = 0.0;
-      _cmd_vel_pub.publish (_comm);
-
+      _omega_motor << 0.0, 0.0, 0.0, 0.0;
       system_reset();
       _sys_res = false;
-
       while( !_odomOk ) usleep( 0.1*1e6 );
       ROS_INFO("System reset done");
       _restarting = false;
-      
+      sleep(1);
     }
     else {
-
       _P_des = _ref_p;
-      _Pd_des =  _ref_dp;
-      _Pdd_des = _ref_ddp;
 
-      _Ep = _P - _P_des;
-
-
-      //cout << "_Ep: " << _Ep.transpose() << endl;
-
-      _Ev = _P_dot - _Pd_des;
-      zb_des = _Kp*_Ep + _Kv*_Ev + _m*9.81*e3 - _m*_Pdd_des;
+      if( fabs(_P_des(2)) < _l_h && (fabs( _cmd_p(2) ) < 0.4) || _cmd_p(2) > 0.0 ) {
+        _omega_motor << 0.0, 0.0, 0.0, 0.0;
+        _landed = true;
+      }
+      else {      
+        _landed = false;
   
-      _uT = zb_des.transpose() * _Rb * e3;
-      zb_des = zb_des/zb_des.norm();
+        _Pd_des =  _ref_dp;
+        _Pdd_des = _ref_ddp;
+        _Ep = _P - _P_des;
 
-      //---TODO: add orientation
-      Vector4d qdes = utilities::rot2quat( utilities::XYZ2R( Vector3d(0, 0, _ref_yaw ) ) );
+        _Ev = _P_dot - _Pd_des;
+        zb_des = _Kp*_Ep + _Kv*_Ev + _m*9.81*e3 - _m*_Pdd_des;
+    
+        _uT = zb_des.transpose() * _Rb * e3;
+        zb_des = zb_des/zb_des.norm();
 
-      tf::Quaternion q_des(qdes[1], qdes[2], qdes[3], qdes[0]); 
-      _q_des = q_des;
-      wbb_des << 0.0, 0.0, _ref_dyaw; 
-      wbbd_des << 0.0, 0.0, _ref_ddyaw; 
-      tf::Matrix3x3 Rb_des_tf(_q_des);
-      tf::matrixTFToEigen(Rb_des_tf,Rb_des);
+        //---TODO: add orientation
+        Vector4d qdes = utilities::rot2quat( utilities::XYZ2R( Vector3d(0, 0, _ref_yaw ) ) );
 
-      Rb_des = _RNed*Rb_des*(_RNed.transpose()); //Rb NED transform
+        tf::Quaternion q_des(qdes[1], qdes[2], qdes[3], qdes[0]); 
+        _q_des = q_des;
+        wbb_des << 0.0, 0.0, _ref_dyaw; 
+        wbbd_des << 0.0, 0.0, _ref_ddyaw; 
+        tf::Matrix3x3 Rb_des_tf(_q_des);
+        tf::matrixTFToEigen(Rb_des_tf,Rb_des);
+
+        Rb_des = _RNed*Rb_des*(_RNed.transpose()); //Rb NED transform
+        
+        xb_des = Rb_des.col(0);
+        yb_des = zb_des.cross(xb_des);
+        yb_des = yb_des / yb_des.norm();
+        xb_des = yb_des.cross(zb_des);
+        Rb_des << xb_des(0), yb_des(0), zb_des(0),
+                xb_des(1), yb_des(1), zb_des(1),
+                xb_des(2), yb_des(2), zb_des(2);
+        _Rb_des = Rb_des;
+
+        Vector3d appo(wbb_des(1),wbb_des(0),-wbb_des(2));
+        wbb_des = appo;
+        _wbb_des = wbb_des;
+
+        Vector3d appo1(wbbd_des(1),wbbd_des(0),-wbbd_des(2));
+        wbbd_des = appo1;
+        _wbbd_des = wbbd_des;
+
+        _Er = 0.5*Vee(_Rb_des.transpose()*_Rb - _Rb.transpose()*_Rb_des);
+        _Ew = _wbb - _Rb.transpose()*_Rb_des*_wbb_des;
+        _tau_b = -_Kr*_Er - _Kw*_Ew + Skew(_wbb)*_I_b*_wbb - _I_b*( Skew(_wbb)*_Rb.transpose()*_Rb_des*_wbb_des - _Rb.transpose()*_Rb_des*_wbbd_des );
+        //---
+
+        controlInput(0) = _uT      ;
+        controlInput(1) = _tau_b(0);
+        controlInput(2) = _tau_b(1);
+        controlInput(3) = _tau_b(2);
+        w2 = _G.inverse() * controlInput;
+
+        extWesti();
+
+        _comm.header.stamp = ros::Time::now();
+
+        correctW(w2);
+
+        if (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0) {
+          _omega_motor << sqrt(w2(3)), sqrt(w2(2)), sqrt(w2(1)), sqrt(w2(0));
+        }
+        else {
+          ROS_WARN("w problem");
+          cout<<w2<<endl;
+        }
+
       
-      xb_des = Rb_des.col(0);
-      yb_des = zb_des.cross(xb_des);
-      yb_des = yb_des / yb_des.norm();
-      xb_des = yb_des.cross(zb_des);
-      Rb_des << xb_des(0), yb_des(0), zb_des(0),
-              xb_des(1), yb_des(1), zb_des(1),
-              xb_des(2), yb_des(2), zb_des(2);
-      _Rb_des = Rb_des;
 
-      Vector3d appo(wbb_des(1),wbb_des(0),-wbb_des(2));
-      wbb_des = appo;
-      _wbb_des = wbb_des;
-
-      Vector3d appo1(wbbd_des(1),wbbd_des(0),-wbbd_des(2));
-      wbbd_des = appo1;
-      _wbbd_des = wbbd_des;
-
-      _Er = 0.5*Vee(_Rb_des.transpose()*_Rb - _Rb.transpose()*_Rb_des);
-      _Ew = _wbb - _Rb.transpose()*_Rb_des*_wbb_des;
-      _tau_b = -_Kr*_Er - _Kw*_Ew + Skew(_wbb)*_I_b*_wbb - _I_b*( Skew(_wbb)*_Rb.transpose()*_Rb_des*_wbb_des - _Rb.transpose()*_Rb_des*_wbbd_des );
-      //---
-
-      controlInput(0) = _uT      ;
-      controlInput(1) = _tau_b(0);
-      controlInput(2) = _tau_b(1);
-      controlInput(3) = _tau_b(2);
-      w2 = _G.inverse() * controlInput;
-
-      extWesti();
-
-      _comm.header.stamp = ros::Time::now();
-
-      correctW(w2);
-
-      if (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0) {
-        _comm.angular_velocities[0] = sqrt(w2(3));
-        _comm.angular_velocities[1] = sqrt(w2(2));
-        _comm.angular_velocities[2] = sqrt(w2(1));
-        _comm.angular_velocities[3] = sqrt(w2(0));
       }
-      else {
-        ROS_WARN("w problem");
-        cout<<w2<<endl;
-      }
-      
-      // cout<<"gain:"<<((_m*9.8)/(w2.sum())*1e6) << endl;
-      _cmd_vel_pub.publish (_comm);
-
       c_active.data = true;
       _controller_active.publish( c_active );
+      std_msgs::Bool b;
+      b.data = _landed;
+      _land_state_pub.publish( b );
+
     }
     r.sleep();
   }
+}
+
+
+void QUAD_CTRL::goal_cb( geometry_msgs::Pose p ) {
+
+  _cmd_p << p.position.x, p.position.y, p.position.z;
+  Vector3d eu = utilities::quatToRpy( Vector4d( p.orientation.w, p.orientation.x, p.orientation.y, p.orientation.z ) );
+  _yaw_cmd = eu(2); 
+
 }
 
 void QUAD_CTRL::insert_dest( ) {
@@ -684,7 +729,8 @@ void QUAD_CTRL::insert_dest( ) {
 
     Vector3d v;
     v << x, y, z;
-    _cmd_p = _RNed*v;
+    //_cmd_p = _RNed*v;
+    _cmd_p = v;
     _yaw_cmd = yaw;
 
   }
@@ -694,6 +740,7 @@ void QUAD_CTRL::run() {
     //temp
     boost::thread insert_dest_t ( &QUAD_CTRL::insert_dest, this);
 
+    boost::thread cmd_publisher_t( &QUAD_CTRL::cmd_publisher, this);
     boost::thread ffilter_t(&QUAD_CTRL::ffilter, this);
     boost::thread ctrl_loop_t ( &QUAD_CTRL::ctrl_loop, this);
     ros::spin();
