@@ -1,16 +1,39 @@
-ref_jerk_max: 1.0
-ref_acc_max: 0.5
-ref_vel_max: 1.0
+ref_jerk_max: 10.0
+ref_acc_max: 2.5
+ref_vel_max: 2.0
 ref_omega: 1.0
-ref_zita: 0.8
+ref_zita: 0.75
 
-ref_o_jerk_max: 0.4
-ref_o_acc_max: 0.75
-ref_o_vel_max: 1.1
-ref_o_jerk_max: 2
-ref_o_acc_max:  1
-ref_o_vel_max:  0.3
+ref_o_jerk_max: 2.0
+ref_o_acc_max: 0.8
+ref_o_vel_max: 0.05
 
 
 point_from_kb: True
 take_off_altitude: -0.6
+
+rate: 350
+l: 0.17
+c_T: 8.54802e-06
+c_a: -1.36780194e-7
+m: 7.68
+
+
+ll_kp_x: 50.0
+ll_kp_y: 50.0
+ll_kp_z: 20.0
+
+ll_kv_x: 20.0
+ll_kv_y: 20.0
+ll_kv_z: 10.0
+
+ll_kr_x: 120.0
+ll_kr_y: 120.0
+ll_kr_z: 120.0
+
+ll_kw_x: 20.0
+ll_kw_y: 20.0
+ll_kw_z: 20.0
+
+##Network manager
+gen_th: 485

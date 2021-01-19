@@ -11,6 +11,11 @@
 #include "gazebo_msgs/ModelState.h"
 #include "geometry_msgs/Pose.h"
 #include "std_srvs/Empty.h"
+#include <iostream>
+#include <fstream>
+#include "std_msgs/Float64.h"
+#include "geometry_msgs/Wrench.h"
+#include "std_msgs/Float32MultiArray.h"
 
 using namespace std;
 using namespace Eigen;
@@ -36,7 +41,7 @@ Matrix3d Skew(Vector3d v) {
 class QUAD_CTRL {
 
     public:
-        QUAD_CTRL(double freq);    
+        QUAD_CTRL();    
         void run();
         void ctrl_loop();
         void odom_cb( nav_msgs::OdometryConstPtr );
@@ -47,6 +52,10 @@ class QUAD_CTRL {
         void system_reset();
         void cmd_publisher();
         void goal_cb( geometry_msgs::Pose );
+        void wlogs();
+        void cv_vel_cb( std_msgs::Float64 cv );
+        void fault_cb( std_msgs::Float32MultiArray fs);
+
     private:
 
         void updateError();
@@ -56,11 +65,15 @@ class QUAD_CTRL {
         ros::Subscriber _odom_sub;
         ros::Subscriber _system_reset_req;
         ros::Subscriber _goal_sub;
+        ros::Subscriber _cv_sub;
+        ros::Subscriber _fault_pub;
         ros::Publisher _model_state_pub;
         ros::Publisher _cmd_vel_pub;
         ros::Publisher _controller_active;
         ros::Publisher _land_state_pub;
         ros::Publisher _NED_odom_pub;
+        ros::Publisher _est_wrench_pub;
+        int _rate;
         double _freq;
         Vector3d _P;
         Vector3d _P_dot;
@@ -106,21 +119,194 @@ class QUAD_CTRL {
         double _ref_ddyaw;
         VectorXd _Fe, _Fe_integral, _Fe_integral_out;
         bool _sys_res;
-
+        double _rp_th;
         ros::ServiceClient _pause_phy;
         ros::ServiceClient _unpause_phy;
         bool _restarting;
 
         Vector4d _omega_motor;
         bool _landed;
-        double _l_h; //Landing altitude        
+        double _l_h; //Landing altitude     
+        double _ref_vel_max;
+        Vector4d _faults;
 };
+
+
+
+QUAD_CTRL::QUAD_CTRL() { 
+    _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometry", 1, &QUAD_CTRL::odom_cb, this);
+    _system_reset_req = _nh.subscribe("/lee/sys_reset", 1, &QUAD_CTRL::sys_reset, this);
+    _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/hummingbird/command/motor_speed", 1);
+    _controller_active = _nh.advertise< std_msgs::Bool >("/lee/controller_active", 1);
+    _model_state_pub = _nh.advertise< gazebo_msgs::ModelState >("/gazebo/set_model_state", 1);
+    _NED_odom_pub = _nh.advertise< geometry_msgs::Pose > ("/lee/pose/ned", 1);
+    _land_state_pub = _nh.advertise< std_msgs::Bool > ("/lee/landed", 1);
+    _goal_sub = _nh.subscribe< geometry_msgs::Pose > ("/lee/goal", 1, &QUAD_CTRL::goal_cb, this );
+    _cv_sub = _nh.subscribe ("/lee/cruise_velocity", 1, &QUAD_CTRL::cv_vel_cb, this );
+    _est_wrench_pub = _nh.advertise< geometry_msgs::Wrench > ("/lee/ext_wrench", 1);
+    _fault_pub = _nh.subscribe("/lee/faults", 1, &QUAD_CTRL::fault_cb, this);
+    _odomOk = false;
+
+    _P.resize(3);
+    _Eta.resize(3);
+
+
+    if( !_nh.getParam("rate", _rate)) {
+      _rate = 200;
+    }
+    _freq = 1.0/float(_rate);
+
+
+    if( !_nh.getParam("l", _l)) {
+      _l = 0.17;
+    }
+    if( !_nh.getParam("c_T", _c_T)) {
+      _c_T = 8.54802e-06;
+    }
+    if( !_nh.getParam("c_a", _c_a)) {
+      _c_a = -1.36780194e-7;
+    }
+    if( !_nh.getParam("m", _m)) {
+      _m = 1.5;
+    }
+
+
+    //Inertia matrix
+    _I_b << 0.777, 0, 0,
+           0, 0.777, 0,
+           0, 0, 1.112;
+
+    double mRobot = 0.97;//Kg
+
+    Matrix3d IRobot;
+    IRobot<< 0.34, 0,0,
+             0, 0.37, 0,
+             0, 0, 0.2;
+
+    //_I_b+=_I_b;
+    //_m += mRobot;
+
+    _G(0,0) = _c_T;    _G(0,1) = _c_T;    _G(0,2) = _c_T; _G(0,3) = _c_T;
+    _G(1,0) = 0;       _G(1,1) = _l*_c_T; _G(1,2) = 0;    _G(1,3) = -_l*_c_T;
+    _G(2,0) = -_l*_c_T; _G(2,1) = 0;       _G(2,2) = _l*_c_T; _G(2,3) = 0;
+    _G(3,0) = -_c_a;    _G(3,1) = _c_a;    _G(3,2) = -_c_a; _G(3,3) = _c_a;
+
+  
+    ROS_WARN("Starting GEOMETRIC controller!");
+
+    double _ll_kp_x;
+    double _ll_kp_y;
+    double _ll_kp_z;
+
+    double _ll_kv_x;
+    double _ll_kv_y;
+    double _ll_kv_z;
+
+    double _ll_kr_x;
+    double _ll_kr_y;
+    double _ll_kr_z;
+
+    double _ll_kw_x;
+    double _ll_kw_y;
+    double _ll_kw_z;
+
+
+    if( !_nh.getParam("rp_th", _rp_th)) {
+      _rp_th = 0.25;
+    }
+
+
+    if( !_nh.getParam("ll_kp_x", _ll_kp_x)) {
+      _ll_kp_x = 5.0;
+    }
+    if( !_nh.getParam("ll_kp_y", _ll_kp_y)) {
+      _ll_kp_y = 5.0;
+    }
+    if( !_nh.getParam("ll_kp_y", _ll_kp_z)) {
+      _ll_kp_z = 5.0;
+    }
+
+    if( !_nh.getParam("ll_kv_x", _ll_kv_x)) {
+      _ll_kv_x = 5.0;
+    }
+    if( !_nh.getParam("ll_kv_y", _ll_kv_y)) {
+      _ll_kv_y = 5.0;
+    }
+    if( !_nh.getParam("ll_kv_z", _ll_kv_z)) {
+      _ll_kv_z = 5.0;
+    }
+
+    if( !_nh.getParam("ll_kr_x", _ll_kr_x)) {
+      _ll_kr_x = 5.0;
+    }
+    if( !_nh.getParam("ll_kr_y", _ll_kr_y)) {
+      _ll_kr_y = 5.0;
+    }
+    if( !_nh.getParam("ll_kr_z", _ll_kr_z)) {
+      _ll_kr_z = 5.0;
+    }
+
+    if( !_nh.getParam("ll_kw_x", _ll_kw_x)) {
+      _ll_kw_x = 5.0;
+    }
+    if( !_nh.getParam("ll_kw_y", _ll_kw_y)) {
+      _ll_kw_y = 5.0;
+    }
+    if( !_nh.getParam("ll_kw_z", _ll_kw_z)) {
+      _ll_kw_z = 5.0;
+    }
+
+
+    _Kp = Vector3d( _ll_kp_x, _ll_kp_y, _ll_kp_z ).asDiagonal();
+    _Kv = Vector3d( _ll_kv_x, _ll_kv_y, _ll_kv_z ).asDiagonal();
+    _Kr = Vector3d( _ll_kr_x, _ll_kr_y, _ll_kr_z ).asDiagonal();
+    _Kw = Vector3d( _ll_kw_x, _ll_kw_y, _ll_kw_z ).asDiagonal();
+
+
+    _Kp = 5.0*Vector3d(10,10,80).asDiagonal();
+    _Kv = _Kp/1.5;
+    _Kr = 4.0*Vector3d(30,30,30).asDiagonal();
+    _Kw = _Kr/4;
+
+
+    _Fe.resize(6);
+    _Fe = Eigen::VectorXd::Zero(6);
+    _Fe_integral.resize(6);
+    _Fe_integral = Eigen::VectorXd::Zero(6);
+    _Fe_integral_out.resize(6);
+    _Fe_integral_out = Eigen::VectorXd::Zero(6);
+  
+    _Qdot.resize(3,3);
+    _uT = 0;
+    _tau_b = Vector3d::Zero();
+   
+    _cmd_p << 0.0, 0.0, 0.0;
+    _cmd_dp << 0.0, 0.0, 0.0;
+    _cmd_ddp << 0.0, 0.0, 0.0;
+    _ref_yaw = 0.0;
+    _omega_motor << 0.0, 0.0, 0.0, 0.0;
+    
+    _pause_phy = _nh.serviceClient<std_srvs::Empty>("/gazebo/pause_physics");
+    _unpause_phy = _nh.serviceClient<std_srvs::Empty>("/gazebo/unpause_physics");
+
+    _restarting = false;
+    _l_h = 0.25;
+    _landed = false;
+    _faults << 1.0, 1.0, 1.0, 1.0;
+}
+
+void QUAD_CTRL::fault_cb( std_msgs::Float32MultiArray fs) {
+  _faults << (1.0-fs.data[0]), (1.0-fs.data[1]), (1.0-fs.data[2]), (1.0-fs.data[3]);
+}
 
 
 void QUAD_CTRL::extWesti() {
   
+  double zita_=1.0;
+  double omega_lin=10;
+  double omega_tor=10;
+  double omega_z=omega_tor;
   
-  double zita_=1.0, omega_lin=10, omega_tor=10, omega_z=omega_tor;
   MatrixXd zita(6,6), omega(6,6);
   MatrixXd K1(6,6),K2(6,6);
 
@@ -144,36 +330,56 @@ void QUAD_CTRL::extWesti() {
   internal.head(3) = -_uT*e3 + _m*9.81*_Rb.transpose()*e3;
   internal.tail(3) = _tau_b - Skew(_wbb)*_I_b*_wbb;
 
-  _Fe_integral += ( internal + _Fe )*(1.0/_freq);
-  _Fe_integral_out += ( -_Fe + K2*( M_xi*alpha - _Fe_integral ) )*(1.0/_freq);
+  _Fe_integral += ( internal + _Fe )*_freq;
+  _Fe_integral_out += ( -_Fe + K2*( M_xi*alpha - _Fe_integral ) )*_freq;
   _Fe = K1*_Fe_integral_out;
 
-  //cout << "_Fe: " << _Fe.transpose() << endl;
-/*
-  //Vector3d _Fe_b = _Rb.transpose()*_Fe.head(3);
+  geometry_msgs::Wrench est_w;
 
-  geometry_msgs::WrenchStamped est_w;
-  est_w.header.stamp=ros::Time::now();
-  est_w.wrench.force.x = _Fe(0);
-  est_w.wrench.force.y = _Fe(1);
-  est_w.wrench.force.z = _Fe(2);
-  est_w.wrench.torque.x = _Fe(3);
-  est_w.wrench.torque.y = _Fe(4);
-  est_w.wrench.torque.z = _Fe(5);
+  est_w.force.x = _Fe(0);
+  est_w.force.y = _Fe(1);
+  est_w.force.z = _Fe(2);
+  est_w.torque.x = _Fe(3);
+  est_w.torque.y = _Fe(4);
+  est_w.torque.z = _Fe(5);
   _est_wrench_pub.publish(est_w);
-  */
+  
 }
 
+//Data log for debug:
+//  P, RefP. CmdP - yaw, refYaw, cmdYaw, ExtForce
+void QUAD_CTRL::wlogs( ) {
+  ros::Rate r(100);
+ 
+  ofstream log_file;
+  log_file.open ("/tmp/lee_logs.txt");
+  
+  while(ros::ok()) {
+
+
+    if( !_landed ) {
+      log_file << _P(0) << ", " << _P(1) << ", " << _P(2) << ", ";
+      log_file << _ref_p(0) << ", " << _ref_p(1) << ", " << _ref_p(2) << ", ";
+      log_file << _cmd_p(0) << ", " << _cmd_p(1) << ", " << _cmd_p(2) << ", ";
+
+      log_file << _Eta(2) << ", " << _ref_yaw << ", " << _yaw_cmd << ", ";
+      log_file << _Fe(0) << ", " << _Fe(1) << ", " << _Fe(2) << ", ";
+      log_file << _Fe(3) << ", " << _Fe(4) << ", " << _Fe(5) << endl;
+    }
+    r.sleep();
+  }
+
+  log_file.close();
+
+}
 void QUAD_CTRL::sys_reset( std_msgs::Bool d) {
   _sys_res = d.data;
 }
-
 void QUAD_CTRL::ffilter(){
   
   //Params
   double ref_jerk_max;
   double ref_acc_max;
-  double ref_vel_max;
   double ref_omega;
   double ref_zita;
 
@@ -188,8 +394,8 @@ void QUAD_CTRL::ffilter(){
   if( !_nh.getParam("ref_acc_max", ref_acc_max)) {
       ref_acc_max = 0.75;
   }
-  if( !_nh.getParam("ref_vel_max", ref_vel_max)) {
-      ref_vel_max = 1.5;
+  if( !_nh.getParam("ref_vel_max", _ref_vel_max)) {
+      _ref_vel_max = 1.5;
   }
   if( !_nh.getParam("ref_omega", ref_omega)) {
       ref_omega = 1.0;
@@ -211,7 +417,7 @@ void QUAD_CTRL::ffilter(){
 
   while( !_odomOk ) usleep(0.1*1e6);
 
-  ros::Rate r(100);
+  ros::Rate r(_rate);
   double ref_T = 1.0/100.0;
     
   _cmd_p = _P;
@@ -262,7 +468,8 @@ void QUAD_CTRL::ffilter(){
     }
     else {
       ep = _cmd_p - _ref_p;
-      
+
+
       double eyaw = _yaw_cmd - _ref_yaw;
 
       if(fabs(eyaw) > M_PI)
@@ -289,9 +496,9 @@ void QUAD_CTRL::ffilter(){
         }
 
         dp(i) = _ref_dp(i) + _ref_ddp(i) * ref_T;
-        if( fabs( dp(i) ) > ref_vel_max )  {
-          if( dp(i) > 0.0 ) _ref_dp(i) = ref_vel_max;
-          else _ref_dp(i) = -ref_vel_max;
+        if( fabs( dp(i) ) > _ref_vel_max )  {
+          if( dp(i) > 0.0 ) _ref_dp(i) = _ref_vel_max;
+          else _ref_dp(i) = -_ref_vel_max;
         }
         else 
           _ref_dp(i) = dp(i);
@@ -365,79 +572,6 @@ void QUAD_CTRL::correctW(Vector4d & w2) {
   for (int i=0; i<4; i++) {
     if(w2(i)<0) w2(i)=0;
   }
-}
-
-QUAD_CTRL::QUAD_CTRL(double freq) { 
-    _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometry", 1, &QUAD_CTRL::odom_cb, this);
-    _system_reset_req = _nh.subscribe("/lee/sys_reset", 1, &QUAD_CTRL::sys_reset, this);
-    _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/hummingbird/command/motor_speed", 1);
-    _controller_active = _nh.advertise< std_msgs::Bool >("/lee/controller_active", 1);
-    _model_state_pub = _nh.advertise< gazebo_msgs::ModelState >("/gazebo/set_model_state", 1);
-    _NED_odom_pub = _nh.advertise< geometry_msgs::Pose > ("/lee/pose/ned", 1);
-    _land_state_pub = _nh.advertise< std_msgs::Bool > ("/lee/landed", 1);
-    _goal_sub = _nh.subscribe< geometry_msgs::Pose > ("/lee/goal", 1, &QUAD_CTRL::goal_cb, this );
-    _odomOk = false;
-
-    _freq = freq;
-
-    _P.resize(3);
-    _Eta.resize(3);
-
-    _l = 0.17; //meters
-    _c_T = 8.54802e-06;
-    _c_a = -0.000001;
-    _m = 7.68 + 0.05;
-
-    //Inertia matrix
-    _I_b << 0.777, 0, 0,
-           0, 0.777, 0,
-           0, 0, 1.112;
-
-    double mRobot = 0.97;//Kg
-
-    Matrix3d IRobot;
-    IRobot<< 0.34, 0,0,
-             0, 0.37, 0,
-             0, 0, 0.2;
-
-    //_I_b+=_I_b;
-    _m += mRobot;
-
-    _G(0,0) = _c_T;    _G(0,1) = _c_T;    _G(0,2) = _c_T; _G(0,3) = _c_T;
-    _G(1,0) = 0;       _G(1,1) = _l*_c_T; _G(1,2) = 0;    _G(1,3) = -_l*_c_T;
-    _G(2,0) = -_l*_c_T; _G(2,1) = 0;       _G(2,2) = _l*_c_T; _G(2,3) = 0;
-    _G(3,0) = -_c_a;    _G(3,1) = _c_a;    _G(3,2) = -_c_a; _G(3,3) = _c_a;
-
-  
-    ROS_WARN("Starting GEOMETRIC controller!");
-    _Kp = 5.0*Vector3d(10,10,80).asDiagonal();
-    _Kv = _Kp/1.5;
-    _Kr = 4.0*Vector3d(30,30,30).asDiagonal();
-    _Kw = _Kr/4;
-
-    _Fe.resize(6);
-    _Fe = Eigen::VectorXd::Zero(6);
-    _Fe_integral.resize(6);
-    _Fe_integral = Eigen::VectorXd::Zero(6);
-    _Fe_integral_out.resize(6);
-    _Fe_integral_out = Eigen::VectorXd::Zero(6);
-  
-    _Qdot.resize(3,3);
-    _uT = 0;
-    _tau_b = Vector3d::Zero();
-   
-    _cmd_p << 0.0, 0.0, 0.0;
-    _cmd_dp << 0.0, 0.0, 0.0;
-    _cmd_ddp << 0.0, 0.0, 0.0;
-    _ref_yaw = 0.0;
-    _omega_motor << 0.0, 0.0, 0.0, 0.0;
-    
-    _pause_phy = _nh.serviceClient<std_srvs::Empty>("/gazebo/pause_physics");
-    _unpause_phy = _nh.serviceClient<std_srvs::Empty>("/gazebo/unpause_physics");
-
-    _restarting = false;
-    _l_h = 0.25;
-    _landed = false;
 }
 
 void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
@@ -520,6 +654,9 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     _odomOk = true;
 }
 
+void QUAD_CTRL::cv_vel_cb( std_msgs::Float64 cv ) {
+  _ref_vel_max = cv.data;
+}
 
 void QUAD_CTRL::system_reset() {
 
@@ -551,20 +688,17 @@ void QUAD_CTRL::system_reset() {
   _ref_yaw = 0.0;
 }
 
-
-
-
 void QUAD_CTRL::cmd_publisher() {
 
   _comm.angular_velocities.resize(4);
 
-  ros::Rate r(300);
+  ros::Rate r(_rate);
   while( ros::ok() ) {
     _comm.header.stamp = ros::Time::now();
-    _comm.angular_velocities[0] = _omega_motor(0);
-    _comm.angular_velocities[1] = _omega_motor(1);
-    _comm.angular_velocities[2] = _omega_motor(2);
-    _comm.angular_velocities[3] = _omega_motor(3);
+    _comm.angular_velocities[0] = _faults(0) * _omega_motor(0);
+    _comm.angular_velocities[1] = _faults(1) * _omega_motor(1);
+    _comm.angular_velocities[2] = _faults(2) * _omega_motor(2);
+    _comm.angular_velocities[3] = _faults(3) * _omega_motor(3);
     _cmd_vel_pub.publish( _comm );
 
     r.sleep();
@@ -573,7 +707,7 @@ void QUAD_CTRL::cmd_publisher() {
 
 void QUAD_CTRL::ctrl_loop() {
 
-  ros::Rate r(_freq);
+  ros::Rate r(_rate);
   _omega_motor << 0.0, 0.0, 0.0, 0.0;
   Vector4d w2, controlInput;
 
@@ -626,7 +760,7 @@ void QUAD_CTRL::ctrl_loop() {
     else {
       _P_des = _ref_p;
 
-      if( fabs(_P_des(2)) < _l_h && (fabs( _cmd_p(2) ) < 0.4) || _cmd_p(2) > 0.0 ) {
+      if(  fabs(_P_des(2)) < _l_h && (fabs( _cmd_p(2) ) < 0.4) || _cmd_p(2) > 0.0 ) {
         _omega_motor << 0.0, 0.0, 0.0, 0.0;
         _landed = true;
       }
@@ -636,20 +770,20 @@ void QUAD_CTRL::ctrl_loop() {
         _Pd_des =  _ref_dp;
         _Pdd_des = _ref_ddp;
         _Ep = _P - _P_des;
-
+      
         _Ev = _P_dot - _Pd_des;
+
         zb_des = _Kp*_Ep + _Kv*_Ev + _m*9.81*e3 - _m*_Pdd_des;
     
         _uT = zb_des.transpose() * _Rb * e3;
         zb_des = zb_des/zb_des.norm();
 
-        //---TODO: add orientation
-        Vector4d qdes = utilities::rot2quat( utilities::XYZ2R( Vector3d(0, 0, _ref_yaw ) ) );
-
+        //Vector4d qdes = utilities::rot2quat( utilities::XYZ2R( Vector3d(0, 0, _ref_yaw ) ) );
+        Vector4d qdes = utilities::rot2quat( utilities::XYZ2R( Vector3d(0, 0, _yaw_cmd ) ) );
         tf::Quaternion q_des(qdes[1], qdes[2], qdes[3], qdes[0]); 
         _q_des = q_des;
-        wbb_des << 0.0, 0.0, _ref_dyaw; 
-        wbbd_des << 0.0, 0.0, _ref_ddyaw; 
+        wbb_des << 0.0, 0.0, 0.0; //_ref_dyaw; 
+        wbbd_des << 0.0, 0.0, 0.0; //, _ref_ddyaw; 
         tf::Matrix3x3 Rb_des_tf(_q_des);
         tf::matrixTFToEigen(Rb_des_tf,Rb_des);
 
@@ -672,7 +806,24 @@ void QUAD_CTRL::ctrl_loop() {
         wbbd_des = appo1;
         _wbbd_des = wbbd_des;
 
+        
+        Vector3d eu = utilities::R2XYZ(_Rb_des);
+        if( fabs(eu(0)) > _rp_th ) {
+          if( eu(0)  > 0.0 ) eu(0) = _rp_th;
+          else eu(0) = -_rp_th;
+        } 
+        if( fabs(eu(1)) > _rp_th ) {
+          if( eu(1)  > 0.0 ) eu(1) = _rp_th;
+          else eu(1) = -_rp_th;
+        } 
+        
+        _Rb_des = utilities::RpyToMat( eu );
+        
+        //cout << utilities::R2XYZ(_Rb_des).transpose() << endl;
+
         _Er = 0.5*Vee(_Rb_des.transpose()*_Rb - _Rb.transpose()*_Rb_des);
+
+        cout << "_Er: " << _Er.transpose() << endl;
         _Ew = _wbb - _Rb.transpose()*_Rb_des*_wbb_des;
         _tau_b = -_Kr*_Er - _Kw*_Ew + Skew(_wbb)*_I_b*_wbb - _I_b*( Skew(_wbb)*_Rb.transpose()*_Rb_des*_wbb_des - _Rb.transpose()*_Rb_des*_wbbd_des );
         //---
@@ -696,21 +847,16 @@ void QUAD_CTRL::ctrl_loop() {
           ROS_WARN("w problem");
           cout<<w2<<endl;
         }
-
-      
-
       }
       c_active.data = true;
       _controller_active.publish( c_active );
       std_msgs::Bool b;
       b.data = _landed;
       _land_state_pub.publish( b );
-
     }
     r.sleep();
   }
 }
-
 
 void QUAD_CTRL::goal_cb( geometry_msgs::Pose p ) {
 
@@ -729,9 +875,9 @@ void QUAD_CTRL::insert_dest( ) {
 
     Vector3d v;
     v << x, y, z;
-    //_cmd_p = _RNed*v;
+    v = _RNed*v;
     _cmd_p = v;
-    _yaw_cmd = yaw;
+    //_yaw_cmd = yaw;
 
   }
 }
@@ -739,6 +885,7 @@ void QUAD_CTRL::insert_dest( ) {
 void QUAD_CTRL::run() {
     //temp
     boost::thread insert_dest_t ( &QUAD_CTRL::insert_dest, this);
+    //boost::thread wlogs_t ( &QUAD_CTRL::wlogs, this);
 
     boost::thread cmd_publisher_t( &QUAD_CTRL::cmd_publisher, this);
     boost::thread ffilter_t(&QUAD_CTRL::ffilter, this);
@@ -748,7 +895,7 @@ void QUAD_CTRL::run() {
 
 int main( int argc, char** argv) {
   ros::init(argc, argv, "SO3_UAV_controller" );
-  QUAD_CTRL c(200);
+  QUAD_CTRL c;
   c.run();
   return 0;
 }

@@ -13,7 +13,9 @@
 #include "std_srvs/Empty.h"
 #include "geometry_msgs/Pose.h"
 #include <random>
-
+#include "std_msgs/Float64.h"
+#include "planner_spline.h"
+#include "std_msgs/Float32MultiArray.h"
 
 class NET_MANAGER {
     public:
@@ -28,6 +30,8 @@ class NET_MANAGER {
         void takeoff();
         void move_to( Vector4d wp, double cv  );
         void ctrl_active( std_msgs::Bool b );
+        void gen_fault();
+        void test_fault();
 
     private:
         ros::NodeHandle _nh;
@@ -36,6 +40,8 @@ class NET_MANAGER {
         ros::Subscriber _controller_active_sub;
         ros::Publisher _point_pub;
         ros::Publisher _reset_pub;
+        ros::Publisher _cv_pub;
+        ros::Publisher _fault_pub;
         Vector3d _P;
         Vector3d _Eta;
         Matrix3d _RNed;
@@ -46,7 +52,10 @@ class NET_MANAGER {
         bool _landed_state;
         bool _ctrl_active;
         double _take_off_altitude;
-
+        bool _traj_done;
+        int _gen_th;
+        CARTESIAN_PLANNER *_cp;
+        std_msgs::Float32MultiArray _faults;
 };
 
 NET_MANAGER::NET_MANAGER() {
@@ -55,8 +64,10 @@ NET_MANAGER::NET_MANAGER() {
     _point_pub = _nh.advertise< geometry_msgs::Pose >("/lee/goal", 1);
     _reset_pub = _nh.advertise< std_msgs::Bool > ("/lee/sys_reset", 1);
     _controller_active_sub = _nh.subscribe< std_msgs::Bool >("/lee/controller_active", 1, &NET_MANAGER::ctrl_active, this);
+    _cv_pub = _nh.advertise< std_msgs::Float64> ("/lee/cruise_velocity", 1);
+    _fault_pub = _nh.advertise< std_msgs::Float32MultiArray > ("/lee/faults", 1);
 
-
+    _faults.data.resize(4); //QuadCopter
 
     if( !_nh.getParam("point_from_kb", _point_from_kb)) {
         _point_from_kb = true;
@@ -66,9 +77,15 @@ NET_MANAGER::NET_MANAGER() {
         _take_off_altitude = -0.6; 
     }
 
+    if( !_nh.getParam("gen_th", _gen_th )) {
+        _gen_th = 85;
+    }
     
     _landed_state = false;
     _first_odom = false;
+    _traj_done = false;
+
+    _cp = new CARTESIAN_PLANNER(100);
 }
 
 void NET_MANAGER::land_state_cb( std_msgs::Bool d ) {
@@ -123,49 +140,133 @@ void NET_MANAGER::takeoff() {
     p.orientation.y = q(2);
     p.orientation.z = q(3);
 
-
     _point_pub.publish( p );
     ros::Rate r(10);
     bool reached = false;
     while( !reached ) { 
         Vector3d eu = utilities::quatToRpy( Vector4d( p.orientation.w, p.orientation.x, p.orientation.y, p.orientation.z ) );
-        
         reached = ( (_P - Vector3d( p.position.x, p.position.y, p.position.z ) ).norm()  < 0.05 ) && ( fabs(_Eta(2) - eu(2)) < 0.05 ) ; 
-
         r.sleep();
     }
+}
+
+void NET_MANAGER::gen_fault() {
+
+    _traj_done = false;
+
+    const int gen_fault_num_range_from  = 0;
+    const int gen_fault_num_range_to    = 500;
+    std::random_device                  gen_fault_rand_dev;
+    std::mt19937                        gen_fault_generator(gen_fault_rand_dev());
+    std::uniform_int_distribution<int>  gen_fault_distr(gen_fault_num_range_from, gen_fault_num_range_to);
 
 
-    //return p;
+    const float perc_damage_from  = 0.1; // 10%
+    const float perc_damage_to    = 0.9;  //90%  
+    std::random_device                  perc_rand_dev;
+    std::mt19937                        perc_generator(perc_rand_dev());
+    std::uniform_real_distribution<float>  perc_distr(perc_damage_from, perc_damage_to);
+ 
+    bool gen = false;
+
+    sleep(1);
+    while( !gen && !_traj_done ) {
+
+        int gdata = gen_fault_distr( gen_fault_generator );
+        //cout << "gdata: " << gdata << " : " << _gen_th << endl;
+        gen = ( gdata > _gen_th ); 
+        //cout << "gen: " << gen << endl;
+        sleep(1);
+    }
+
+    if ( !_traj_done ) {
+        ROS_WARN("GEN Fault!");
+        ROS_INFO("Fault generation");
+    }
+    else {
+
+        //Only on motor 0 right now
+        float perc_damage = perc_distr( perc_generator );
+        
+        std_msgs::Float32MultiArray d;
+        d.data.resize(4);
+        d.data[0] = 0.0;
+        d.data[1] = 0.0;
+        d.data[2] = 0.0;
+        d.data[3] = 0.0;
+
+        d.data[0] = perc_damage;    
+        _fault_pub.publish( d );
+        
+        return;
+    }
 }
 
 
 void NET_MANAGER::move_to( Vector4d wp, double cv ) {
+
+    cout << "New wp: " << wp.transpose() << " - CV: " << cv << endl;
+
+    std::vector<geometry_msgs::PoseStamped> poses;
+    std::vector<double> times;
     
-    geometry_msgs::Pose p;
-    p.position.x = wp(0);
-    p.position.y = wp(1);
-    p.position.z = wp(2); 
+    geometry_msgs::PoseStamped p0;
+    double t0;
 
+    //--Start point
+    p0.pose.position.x = _P(0);
+    p0.pose.position.y = _P(1);
+    p0.pose.position.z = _P(2);
 
-    Vector4d q = utilities::RpyToQuat( Vector3d(0, 0, wp(3) ) );
+    Vector4d q = utilities::RpyToQuat( Vector3d(0, 0, _Eta(2) ) );
 
-    p.orientation.w = q(0);
-    p.orientation.x = q(1);
-    p.orientation.y = q(2);
-    p.orientation.z = q(3);
+    p0.pose.orientation.w = q(0);
+    p0.pose.orientation.x = q(1);
+    p0.pose.orientation.y = q(2);
+    p0.pose.orientation.z = q(3);
 
+    t0 = 0.0;
+    poses.push_back( p0 );
+    times.push_back( t0 );
+    //---
+    
+    //---End point
+    p0.pose.position.x = wp(0);
+    p0.pose.position.y = wp(1);
+    p0.pose.position.z = wp(2);
 
-    _point_pub.publish( p );
-    ros::Rate r(10);
-    bool reached = false;
-    while( !reached ) { 
-        Vector3d eu = utilities::quatToRpy( Vector4d( p.orientation.w, p.orientation.x, p.orientation.y, p.orientation.z ) );
-        reached = ( (_P - Vector3d( p.position.x, p.position.y, p.position.z ) ).norm()  < 0.05 ) && ( fabs(-_Eta(2) - eu(2)) < 0.05 ) ; 
+    q = utilities::RpyToQuat( Vector3d(0, 0, wp(3) ) );
 
+    p0.pose.orientation.w = q(0);
+    p0.pose.orientation.x = q(1);
+    p0.pose.orientation.y = q(2);
+    p0.pose.orientation.z = q(3);
+    
+    double s = ( _P - Vector3d( wp(0), wp(1), wp(2)) ).norm();
+    
+    //t0 = s / cv;
+    t0 = s / cv;
+    poses.push_back( p0 );
+    times.push_back( t0 );
+    //---
+
+    _cp->set_waypoints( poses, times );
+    _cp->compute();
+
+    geometry_msgs::PoseStamped x;
+    geometry_msgs::TwistStamped xd;
+    geometry_msgs::AccelStamped xdd;
+
+    ros::Rate r(100);
+    while( _cp->getNext(x, xd, xdd) ) {
+        //cout << "P: " << x << endl; 
+        _point_pub.publish( x.pose );
+        _fault_pub.publish( _faults );
         r.sleep();
     }
-    
+
+
+
 }
 
 void NET_MANAGER::net_loop() {
@@ -175,8 +276,6 @@ void NET_MANAGER::net_loop() {
     geometry_msgs::Pose dp;
 
     ros::Rate r(10);
-
- 
 
     /*---Random data for an epoch
         *  
@@ -221,26 +320,13 @@ void NET_MANAGER::net_loop() {
     std::random_device                  cv_rand_dev;
     std::mt19937                        cv_generator(cv_rand_dev());
     std::uniform_real_distribution<float>  cv_distr(cv_range_from, cv_range_to);
-    //--- Danage time: a probabilistic value: 0 -> 100. If > 60 and starting time > 7 sec -> damage it
-    //const float tff_range_from  = 2.0;
-    //const float tff_range_to    = 15.0;
-    //std::random_device                  tff_rand_dev;
-    //std::mt19937                        tff_generator(tff_rand_dev());
-    //std::uniform_real_distribution<float>  tff_distr(tff_range_from, tff_range_to);
     //---
-    const float perc_damage_from  = 0.05; // 5%
-    const float perc_damage_to    = 0.9;  //90%  
-    std::random_device                  perc_rand_dev;
-    std::mt19937                        perc_generator(perc_rand_dev());
-    std::uniform_real_distribution<float>  perc_distr(perc_damage_from, perc_damage_to);
- 
-
+  
     //Session 0: no fault
     //Session 1: fault
     int session = 1; 
     vector < Vector4d > wps;
     vector < double > cvs;
-    float perc_damage;
 
     while(ros::ok()) {
 
@@ -249,37 +335,41 @@ void NET_MANAGER::net_loop() {
 
         wps.clear();
         int n_wp = wp_distr(wp_generator);
-        n_wp = 1;
         wps.resize ( n_wp );
         cvs.resize ( n_wp );
-
-        cout << "wp size: "  << wps.size() << endl;
+        cout << "Path: " << n_wp << " segments" << endl;
 
         for(int i=0; i<n_wp; i++ ) {
-            float x = 0.0; //xy_distr(xy_generator);
-            float y = 0.0; //xy_distr(xy_generator);
-            float z = _P(2) + _take_off_altitude;  //0.0; //z_distr(z_generator);
-            float yaw = yaw_distr ( yaw_generator );
+            float x = xy_distr(xy_generator);
+            float y = xy_distr(xy_generator);
+            float z = z_distr(z_generator);
+            float yaw = 0.0; //yaw_distr ( yaw_generator );
             float cv = cv_distr( cv_generator );
             wps[i] << x, y, z, yaw;
             cvs[i] = cv;
         }
 
         if( session == 0 ) {
-
             ROS_INFO("Start no-fault session");
-
-        }
-        else {
-
-            ROS_INFO("Start fault session");
-            perc_damage = perc_distr( perc_generator );
             if( _landed_state ) {
                 takeoff();
             }
             for(int i=0; i<wps.size(); i++ ) {
-                cout << "Wp: " << wps[i].transpose() << endl;
-                move_to( wps[i], 0 );
+                move_to( wps[i], cvs[i] );
+            }
+        }
+        
+        else {
+
+            ROS_INFO("Start fault session");
+            if( _landed_state ) {
+                takeoff();
+            }
+            for(int i=0; i<wps.size(); i++ ) {
+                boost::thread gen_fault_t( &NET_MANAGER::gen_fault, this );
+                move_to( wps[i], cvs[i] );
+                _traj_done = true;
+                usleep(0.1*1e6);
             }
         }
 
@@ -292,7 +382,32 @@ void NET_MANAGER::net_loop() {
 }
 
 
+void NET_MANAGER::test_fault() {
+
+    std_msgs::Float32MultiArray d;
+    d.data.resize(4);
+    d.data[0] = 0.0;
+    d.data[1] = 0.0;
+    d.data[2] = 0.0;
+    d.data[3] = 0.0;
+
+    ros::Rate r(10);
+
+    float f1;
+    int m;
+    cout << "Insert motor fault and fault value" << endl;
+    scanf("%d%f", &m, &f1);
+
+    d.data[m] = f1;    
+    if( f1 > 1.0 ) f1 = 1.0;
+    while(ros::ok() ) {
+        _fault_pub.publish( d );
+        r.sleep();
+    }
+}
+
 void NET_MANAGER::run(){
+    //boost::thread test_faults_t( &NET_MANAGER::test_fault, this);
     boost::thread net_loop_t ( &NET_MANAGER::net_loop, this );
     ros::spin();
 }

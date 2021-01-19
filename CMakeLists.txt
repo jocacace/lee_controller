@@ -144,7 +144,7 @@ include_directories(
 add_executable(quad_control src/controller.cpp)
 target_link_libraries( quad_control ${catkin_LIBRARIES} )
 
-add_executable(manager_node src/network_manager.cpp)
+add_executable(manager_node src/network_manager.cpp src/planner_spline.cpp)
 target_link_libraries( manager_node ${catkin_LIBRARIES} )
 
 
