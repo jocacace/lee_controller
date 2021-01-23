@@ -16,10 +16,14 @@
 #include "std_msgs/Float64.h"
 #include "planner_spline.h"
 #include "std_msgs/Float32MultiArray.h"
+#include "geometry_msgs/Vector3.h"
+#include <ros/package.h>
+#include <fstream>
 
 class NET_MANAGER {
     public:
         NET_MANAGER();
+        ~NET_MANAGER();
         void run();
         void insert_point();
         void net_loop();
@@ -31,7 +35,12 @@ class NET_MANAGER {
         void move_to( Vector4d wp, double cv  );
         void ctrl_active( std_msgs::Bool b );
         void gen_fault();
+        void gen_fault_req();
         void test_fault();
+        void e_p_cb( geometry_msgs::Vector3 );
+        void e_r_cb( geometry_msgs::Vector3 );
+        void write_ts();
+        void ext_force_cb( geometry_msgs::Wrench ew );
 
     private:
         ros::NodeHandle _nh;
@@ -42,6 +51,10 @@ class NET_MANAGER {
         ros::Publisher _reset_pub;
         ros::Publisher _cv_pub;
         ros::Publisher _fault_pub;
+        ros::Subscriber _e_p_sub;
+        ros::Subscriber _e_r_sub;
+        ros::Subscriber _ext_force_sub;
+        
         Vector3d _P;
         Vector3d _Eta;
         Matrix3d _RNed;
@@ -56,9 +69,20 @@ class NET_MANAGER {
         int _gen_th;
         CARTESIAN_PLANNER *_cp;
         std_msgs::Float32MultiArray _faults;
+        double _ep_norm;
+        double _er_norm;
+        string _file_path;
+        geometry_msgs::Wrench _ext_w;
+        bool _fault_on;
+        int _cnt_th;
+        string _set_filename;
+        bool _test;
+        Vector3d _e_r;
 };
 
+
 NET_MANAGER::NET_MANAGER() {
+
     _odom_sub = _nh.subscribe("/lee/pose/ned", 1, &NET_MANAGER::odom_cb, this);
     _land_state_sub = _nh.subscribe("/lee/landed", 1, &NET_MANAGER::land_state_cb, this);
     _point_pub = _nh.advertise< geometry_msgs::Pose >("/lee/goal", 1);
@@ -66,6 +90,9 @@ NET_MANAGER::NET_MANAGER() {
     _controller_active_sub = _nh.subscribe< std_msgs::Bool >("/lee/controller_active", 1, &NET_MANAGER::ctrl_active, this);
     _cv_pub = _nh.advertise< std_msgs::Float64> ("/lee/cruise_velocity", 1);
     _fault_pub = _nh.advertise< std_msgs::Float32MultiArray > ("/lee/faults", 1);
+    _e_p_sub = _nh.subscribe("/lee/ep", 1, &NET_MANAGER::e_p_cb, this);
+    _e_r_sub = _nh.subscribe("/lee/er", 1, &NET_MANAGER::e_r_cb, this);
+    _ext_force_sub = _nh.subscribe("/lee/ext_wrench", 1, &NET_MANAGER::ext_force_cb, this);
 
     _faults.data.resize(4); //QuadCopter
 
@@ -80,12 +107,37 @@ NET_MANAGER::NET_MANAGER() {
     if( !_nh.getParam("gen_th", _gen_th )) {
         _gen_th = 85;
     }
+
+    if( !_nh.getParam("cnt_th", _cnt_th)) {
+        _cnt_th = 400;
+    }
     
+    if( !_nh.getParam("set_filename", _set_filename)) {
+        _set_filename = "set.txt";
+    }
+    if( !_nh.getParam("test", _test)) {
+        _test = false;
+    }
+
+    
+
     _landed_state = false;
     _first_odom = false;
     _traj_done = false;
+    
 
-    _cp = new CARTESIAN_PLANNER(100);
+
+    _ep_norm = 0.0;
+    _er_norm = 0.0;
+
+    _cp = new CARTESIAN_PLANNER(10);
+
+    std::string path = ros::package::getPath("lee_controller");
+    _file_path = path + "/NN/TS/";    
+    _fault_on = false;
+
+    _ext_w.force.x = _ext_w.force.y = _ext_w.force.z = 0.0;
+    _ext_w.torque.x = _ext_w.torque.y = _ext_w.torque.z = 0.0;
 }
 
 void NET_MANAGER::land_state_cb( std_msgs::Bool d ) {
@@ -106,6 +158,10 @@ void NET_MANAGER::odom_cb( geometry_msgs::Pose odom ) {
     _first_odom = true;
 }
 
+void NET_MANAGER::ext_force_cb( geometry_msgs::Wrench ew ) {
+    _ext_w = ew;
+}
+
 Vector4d NET_MANAGER::get_point_k( ) {
     cout << "Insert x, y, z e yaw in ENU fixed frame" << endl;
     float x,y,z,yaw;
@@ -124,14 +180,38 @@ Vector4d NET_MANAGER::get_point_k( ) {
     return p;
 }
 
-void NET_MANAGER::takeoff() {
+/*
+void NET_MANAGER::write_ts() {
 
+    ros::Rate r(100);
+    
+
+    //Training SET:
+    //Fx | Fy | Fz | Mx | My | Mz -> Fault (si/no)    
+    std::ofstream log_file;
+    log_file.open ("/tmp/lee_logs.txt");
+  
+  while(ros::ok()) {
+
+    r.sleep();
+  
+  }
+    
+  log_file.close();
+
+
+}
+*/
+
+NET_MANAGER::~NET_MANAGER() {
+}
+
+void NET_MANAGER::takeoff() {
 
     geometry_msgs::Pose p;
     p.position.x = _P(0);
     p.position.y = _P(1);
     p.position.z = _P(2) + _take_off_altitude; 
-
 
     Vector4d q = utilities::RpyToQuat( Vector3d(0, 0, _Eta(2) ) );
 
@@ -150,8 +230,18 @@ void NET_MANAGER::takeoff() {
     }
 }
 
-void NET_MANAGER::gen_fault() {
+void NET_MANAGER::e_p_cb( geometry_msgs::Vector3 p){
+    _ep_norm = Vector3d(p.x, p.y, p.z).norm();
 
+}
+void NET_MANAGER::e_r_cb( geometry_msgs::Vector3 r ){
+    _er_norm = Vector3d(r.x, r.y, r.z).norm();
+    _e_r << r.x, r.y, r.z;
+}
+
+
+void NET_MANAGER::gen_fault() {
+    _fault_on = false;
     _traj_done = false;
 
     const int gen_fault_num_range_from  = 0;
@@ -169,39 +259,68 @@ void NET_MANAGER::gen_fault() {
  
     bool gen = false;
 
-    sleep(1);
-    while( !gen && !_traj_done ) {
 
+    sleep(5);
+    
+    while( !gen && !_traj_done ) {
         int gdata = gen_fault_distr( gen_fault_generator );
-        //cout << "gdata: " << gdata << " : " << _gen_th << endl;
         gen = ( gdata > _gen_th ); 
-        //cout << "gen: " << gen << endl;
         sleep(1);
     }
 
     if ( !_traj_done ) {
         ROS_WARN("GEN Fault!");
         ROS_INFO("Fault generation");
+     
+        //Only on motor 0 right now
+        float perc_damage = perc_distr( perc_generator );
+        _faults.data[0] = perc_damage;
+        _faults.data[1] = 0.0;
+        _faults.data[2] = 0.0;
+        _faults.data[3] = 0.0;
+        _fault_on = true;
+        cout << "Fault percentige: " << perc_damage << endl;
     }
     else {
 
-        //Only on motor 0 right now
-        float perc_damage = perc_distr( perc_generator );
-        
-        std_msgs::Float32MultiArray d;
-        d.data.resize(4);
-        d.data[0] = 0.0;
-        d.data[1] = 0.0;
-        d.data[2] = 0.0;
-        d.data[3] = 0.0;
-
-        d.data[0] = perc_damage;    
-        _fault_pub.publish( d );
-        
-        return;
+       
     }
 }
 
+
+
+
+
+void NET_MANAGER::gen_fault_req() {
+
+    _fault_on = false;
+    _traj_done = false;
+ 
+    bool gen = false;
+
+    _faults.data[0] = 0.0;
+    _faults.data[1] = 0.0;
+    _faults.data[2] = 0.0;
+    _faults.data[3] = 0.0;
+    while( ros::ok() ) {
+        int m;
+        float f1;
+        cout << "Insert motor fault and fault value, -1 to reset" << endl;
+        scanf("%d%f", &m, &f1);
+        if( m == -1 ) {
+            _faults.data[0] = 0.0;
+            _faults.data[1] = 0.0;
+            _faults.data[2] = 0.0;
+            _faults.data[3] = 0.0;
+        }
+        else {
+            ROS_INFO("Fault generation");
+            if( f1 > 1.0 ) f1 = 1.0;
+            _faults.data[m] = f1;    
+            _fault_on = true;
+        } 
+    }
+}
 
 void NET_MANAGER::move_to( Vector4d wp, double cv ) {
 
@@ -256,15 +375,38 @@ void NET_MANAGER::move_to( Vector4d wp, double cv ) {
     geometry_msgs::PoseStamped x;
     geometry_msgs::TwistStamped xd;
     geometry_msgs::AccelStamped xdd;
+    
+    ofstream ts_file( _file_path + "/" + _set_filename,  std::ios_base::app);
 
-    ros::Rate r(100);
-    while( _cp->getNext(x, xd, xdd) ) {
-        //cout << "P: " << x << endl; 
+    ros::Rate r(10);
+
+    bool interrupt = false; 
+    int cnt = 0;
+    if( !_test ) ts_file << "====" << endl;
+
+    while( (_cp->getNext(x, xd, xdd)) && !interrupt  ) {
+        
         _point_pub.publish( x.pose );
-        _fault_pub.publish( _faults );
+        _fault_pub.publish( _faults );        
+        if( _test ) 
+            ts_file << _ext_w.force.x << ", " << _ext_w.force.y << ", " <<  _ext_w.force.z << ", " << 
+            _ext_w.torque.x << ", " << _ext_w.torque.y << ", " << _ext_w.torque.z << ", " << ( _fault_on == true ) <<   endl;
+
+        if( _fault_on ) {
+            if ( cnt++ > _cnt_th ) {
+                interrupt = true;
+                cout << "Cnt end!" << endl;
+            }
+            if( fabs(_e_r(0)) > 0.35 || fabs(_e_r(1)) > 0.35 ) {
+                interrupt = true;
+                cout << "Stall" << endl;
+            }
+        }
+
         r.sleep();
     }
 
+    ts_file.close();
 
 
 }
@@ -323,12 +465,18 @@ void NET_MANAGER::net_loop() {
     //---
   
     //Session 0: no fault
-    //Session 1: fault
+    //Session 1: no-fault/fault
     int session = 1; 
     vector < Vector4d > wps;
     vector < double > cvs;
+    _fault_on = false;
 
     while(ros::ok()) {
+
+        _faults.data[0] = 0.0;
+        _faults.data[1] = 0.0;
+        _faults.data[2] = 0.0;
+        _faults.data[3] = 0.0;
 
         while (!_ctrl_active ) usleep(0.1*1e6);
         _ctrl_active = false;
@@ -349,34 +497,31 @@ void NET_MANAGER::net_loop() {
             cvs[i] = cv;
         }
 
-        if( session == 0 ) {
-            ROS_INFO("Start no-fault session");
-            if( _landed_state ) {
-                takeoff();
-            }
-            for(int i=0; i<wps.size(); i++ ) {
-                move_to( wps[i], cvs[i] );
-            }
+    
+        ROS_INFO("Start faulty session");
+        if( _landed_state ) {
+            takeoff();
         }
-        
-        else {
 
-            ROS_INFO("Start fault session");
-            if( _landed_state ) {
-                takeoff();
-            }
-            for(int i=0; i<wps.size(); i++ ) {
+        int i=0;
+        while( i<wps.size() && !_fault_on )  {
+            //if (i == 1) 
+            if( !_test )
                 boost::thread gen_fault_t( &NET_MANAGER::gen_fault, this );
-                move_to( wps[i], cvs[i] );
-                _traj_done = true;
-                usleep(0.1*1e6);
-            }
+            move_to( wps[i], cvs[i] );
+            _traj_done = true;
+            usleep(0.1*1e6);
+            i++;
         }
+
+        //if fault on: record a bit more and exit
+
 
         _landed_state = true;
         std_msgs::Bool reset;
         reset.data = true;
         _reset_pub.publish( reset );
+        _fault_on = false;
         sleep(1);
     }
 }
@@ -408,6 +553,10 @@ void NET_MANAGER::test_fault() {
 
 void NET_MANAGER::run(){
     //boost::thread test_faults_t( &NET_MANAGER::test_fault, this);
+    //boost::thread write_ts_t( &NET_MANAGER::write_ts, this);
+    if( _test ) 
+        boost::thread gen_fault_req_t(  &NET_MANAGER::gen_fault_req, this );
+        
     boost::thread net_loop_t ( &NET_MANAGER::net_loop, this );
     ros::spin();
 }

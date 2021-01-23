@@ -35,27 +35,10 @@ ll_kw_x: 20.0
 ll_kw_y: 20.0
 ll_kw_z: 20.0
 
-
-#ll_kp_x: 10.0
-#ll_kp_y: 10.0
-#ll_kp_z: 3.0
-#
-#ll_kv_x: 5.0
-#ll_kv_y: 5.0
-#ll_kv_z: 1.5
-#
-#ll_kr_x: 45.0
-#ll_kr_y: 45.0
-#ll_kr_z: 45.0
-#
-#ll_kw_x: 20.0
-#ll_kw_y: 20.0
-#ll_kw_z: 20.0
-
-motor_speed_topic: "/hummingbird/command/motor_speed"
-odometry_topic: "/hummingbird/ground_truth/odometry"
-model_name: "hummingbird"
-coaxial: False
+motor_speed_topic: "/ndt2/gazebo/command/motor_speed"
+odometry_topic: "/ndt2/ground_truth/odometry"
+model_name: "ndt2"
+coaxial: True
 test_motors: True
 
 ##Network manager

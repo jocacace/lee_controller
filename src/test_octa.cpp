@@ -57,7 +57,6 @@ class QUAD_CTRL {
         void wlogs();
         void cv_vel_cb( std_msgs::Float64 cv );
         void fault_cb( std_msgs::Float32MultiArray fs);
-        void test_motors();
 
     private:
 
@@ -135,13 +134,11 @@ class QUAD_CTRL {
         double _l_h; //Landing altitude     
         double _ref_vel_max;
         Vector4d _faults;
-        
+
         //System parameters
         string _motor_speed_topic;
         string _odometry_topic;
         string _model_name;
-        bool _test_motors;
-        bool _coaxial;
 };
 
 
@@ -156,16 +153,12 @@ QUAD_CTRL::QUAD_CTRL() {
       _odometry_topic = "/hummingbird/ground_truth/odometry";
     }
     if( !_nh.getParam("model_name", _model_name)) {
-      _model_name = "hummingbird";
+      _model_name = "/ndt2/gazebo/command/motor_speed";
     }
-    if( !_nh.getParam("test_motors", _test_motors)) {
-      _test_motors = false;
-    }
-    
 
-    _odom_sub = _nh.subscribe(_odometry_topic.c_str(), 1, &QUAD_CTRL::odom_cb, this);
+    _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometry", 1, &QUAD_CTRL::odom_cb, this);
     _system_reset_req = _nh.subscribe("/lee/sys_reset", 1, &QUAD_CTRL::sys_reset, this);
-    _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>(_motor_speed_topic.c_str(), 1);
+    _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/ndt2/gazebo/command/motor_speed", 1);
     _controller_active = _nh.advertise< std_msgs::Bool >("/lee/controller_active", 1);
     _model_state_pub = _nh.advertise< gazebo_msgs::ModelState >("/gazebo/set_model_state", 1);
     _NED_odom_pub = _nh.advertise< geometry_msgs::Pose > ("/lee/pose/ned", 1);
@@ -185,10 +178,6 @@ QUAD_CTRL::QUAD_CTRL() {
     _P.resize(3);
     _Eta.resize(3);
 
-
-    if( !_nh.getParam("coaxial", _coaxial)) {
-      _coaxial = false;
-    }
 
     if( !_nh.getParam("rate", _rate)) {
       _rate = 200;
@@ -740,7 +729,7 @@ void QUAD_CTRL::system_reset() {
 
 void QUAD_CTRL::cmd_publisher() {
 
-  _comm.angular_velocities.resize(4);
+  _comm.angular_velocities.resize(8);
 
   ros::Rate r(_rate);
   while( ros::ok() ) {
@@ -749,12 +738,22 @@ void QUAD_CTRL::cmd_publisher() {
     //cout << "_faults: " << _faults.transpose() << endl;
     //cout << "Omega motor " << _omega_motor.transpose() << endl;
 
-    _comm.angular_velocities[0] = _faults(0) * _omega_motor(0);
-    _comm.angular_velocities[1] = _faults(1) * _omega_motor(1);
-    _comm.angular_velocities[2] = _faults(2) * _omega_motor(2);
-    _comm.angular_velocities[3] = _faults(3) * _omega_motor(3);
-    _cmd_vel_pub.publish( _comm );
-
+    for(int i=0; i<8; i++ ) {
+      for(int j=0; j<8; j++) {
+        if ( j != i ) {
+          _comm.angular_velocities[j] = 0.0  ;
+        }
+      
+      }
+      cout << "Moving motor: " << i << endl;
+      _comm.angular_velocities[i] = 100.0; //_faults(0) * _omega_motor(0);
+      _cmd_vel_pub.publish( _comm );
+      sleep(1);
+    }
+    //_comm.angular_velocities[1] = 0.0; //_faults(1) * _omega_motor(1);
+    //_comm.angular_velocities[2] = 0.0; //_faults(2) * _omega_motor(2);
+    //_comm.angular_velocities[3] = 0.0; //_faults(3) * _omega_motor(3);
+    
 
     //cout << "_comm.angular_velocities: " << _comm.angular_velocities[0] << ", " << _comm.angular_velocities[1] << ", " << _comm.angular_velocities[2] << ", " << _comm.angular_velocities[3] << endl;
     r.sleep();
@@ -956,49 +955,14 @@ void QUAD_CTRL::insert_dest( ) {
   }
 }
 
-
-void QUAD_CTRL::test_motors() {
-
-  int num_motor = 4;
-  if( _coaxial ) num_motor = 8;
-
-  _comm.angular_velocities.resize(num_motor);
-
-  ros::Rate r(_rate);
-  
-  while( ros::ok() ) {
-
-    _comm.header.stamp = ros::Time::now();
-
-    for(int i=0; i<num_motor; i++ ) {
-      for(int j=0; j<num_motor; j++) {
-        if ( j != i ) {
-          _comm.angular_velocities[j] = 0.0  ;
-        }
-      }
-
-      cout << "Moving motor: " << i << endl;
-      _comm.angular_velocities[i] = 100.0; //_faults(0) * _omega_motor(0);
-      _cmd_vel_pub.publish( _comm );
-      sleep(3);
-    }
-  }
-}
-
 void QUAD_CTRL::run() {
-    
+    //temp
+    //boost::thread insert_dest_t ( &QUAD_CTRL::insert_dest, this);
+    //boost::thread wlogs_t ( &QUAD_CTRL::wlogs, this);
 
-    if( _test_motors )
-      boost::thread test_motors_t(&QUAD_CTRL::test_motors, this);
-    else {
-
-      boost::thread insert_dest_t ( &QUAD_CTRL::insert_dest, this);
-      boost::thread wlogs_t ( &QUAD_CTRL::wlogs, this);
-
-      boost::thread cmd_publisher_t( &QUAD_CTRL::cmd_publisher, this);
-      boost::thread ffilter_t(&QUAD_CTRL::ffilter, this);
-      boost::thread ctrl_loop_t ( &QUAD_CTRL::ctrl_loop, this);
-    }
+    boost::thread cmd_publisher_t( &QUAD_CTRL::cmd_publisher, this);
+    //boost::thread ffilter_t(&QUAD_CTRL::ffilter, this);
+    //boost::thread ctrl_loop_t ( &QUAD_CTRL::ctrl_loop, this);
     ros::spin();
 }
 

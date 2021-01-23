@@ -19,6 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf
   tf_conversions
   mav_msgs
+  roslib
 )
 
 ## System dependencies are found with CMake's conventions
@@ -146,5 +147,9 @@ target_link_libraries( quad_control ${catkin_LIBRARIES} )
 
 add_executable(manager_node src/network_manager.cpp src/planner_spline.cpp)
 target_link_libraries( manager_node ${catkin_LIBRARIES} )
+
+
+add_executable(test_octa src/test_octa.cpp )
+target_link_libraries( test_octa ${catkin_LIBRARIES} )
 
 

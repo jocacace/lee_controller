@@ -52,9 +52,9 @@ ll_kw_z: 20.0
 #ll_kw_y: 20.0
 #ll_kw_z: 20.0
 
-motor_speed_topic: "/hummingbird/command/motor_speed"
-odometry_topic: "/hummingbird/ground_truth/odometry"
-model_name: "hummingbird"
+motor_speed_topic: "/iris/gazebo/command/motor_speed"
+odometry_topic: "/iris/ground_truth/odometry"
+model_name: "iris"
 coaxial: False
 test_motors: True
 
