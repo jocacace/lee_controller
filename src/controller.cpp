@@ -219,13 +219,57 @@ QUAD_CTRL::QUAD_CTRL() {
 
     //_I_b+=_I_b;
     //_m += mRobot;
+    double rotor_angles[4]; 
+    rotor_angles[0] = -0.5337;
+    rotor_angles[1] = 2.565;
+    rotor_angles[2] = 0.5337;
+    rotor_angles[3] = -2.565;
 
-    _G(0,0) = _c_T;    _G(0,1) = _c_T;    _G(0,2) = _c_T; _G(0,3) = _c_T;
-    _G(1,0) = 0;       _G(1,1) = _l*_c_T; _G(1,2) = 0;    _G(1,3) = -_l*_c_T;
-    _G(2,0) = -_l*_c_T; _G(2,1) = 0;       _G(2,2) = _l*_c_T; _G(2,3) = 0;
-    _G(3,0) = -_c_a;    _G(3,1) = _c_a;    _G(3,2) = -_c_a; _G(3,3) = _c_a;
+    double arm_length[4];
+    arm_length[0] = 0.255;
+    arm_length[1] = 0.238;
+    arm_length[2] = 0.255;
+    arm_length[3] = 0.238;
+    
 
   
+    _G(0,0) = _c_T;    
+    _G(0,1) = _c_T;    
+    _G(0,2) = _c_T; 
+    _G(0,3) = _c_T;
+   
+    //cout << "SIN: " << sin(rotor_angles[0]) << endl;
+    //cout << "arm_length[0]: " << arm_length[0] << endl;
+    //cout << "_c_T: " << _c_T << endl;
+    
+    _G(1,0) = sin(rotor_angles[0])*arm_length[0]*_c_T;  
+    _G(1,1) = sin(rotor_angles[1])*arm_length[1]*_c_T; 
+    _G(1,2) = sin(rotor_angles[2])*arm_length[2]*_c_T;  
+    _G(1,3) = sin(rotor_angles[3])*arm_length[3]*_c_T;
+
+    _G(2,0) = cos(rotor_angles[0])*arm_length[0]*_c_T;  
+    _G(2,1) = cos(rotor_angles[1])*arm_length[1]*_c_T; 
+    _G(2,2) = cos(rotor_angles[2])*arm_length[2]*_c_T;  
+    _G(2,3) = cos(rotor_angles[3])*arm_length[3]*_c_T;
+    
+    _G(3,0) = -_c_a;    
+    _G(3,1) = _c_a;    
+    _G(3,2) = -_c_a; 
+    _G(3,3) = _c_a;
+
+
+    cout << "G: " << endl << _G << endl;
+    
+
+
+
+
+    /*
+    _G(0,0) = _c_T;    _G(0,1) = _c_T;    _G(0,2) = _c_T; _G(0,3) = _c_T;
+    _G(1,0) = 1;       _G(1,1) = 1.0;     _G(1,2) = 1;    _G(1,3) = 1.0;
+    _G(2,0) = 1; _G(2,1) = 1;       _G(2,2) = 1; _G(2,3) = 1;
+    _G(3,0) = -_c_a;    _G(3,1) = _c_a;    _G(3,2) = -_c_a; _G(3,3) = _c_a;
+    */
     ROS_WARN("Starting GEOMETRIC controller!");
 
     double _ll_kp_x;
@@ -753,7 +797,10 @@ void QUAD_CTRL::cmd_publisher() {
     _comm.angular_velocities[1] = _faults(1) * _omega_motor(1);
     _comm.angular_velocities[2] = _faults(2) * _omega_motor(2);
     _comm.angular_velocities[3] = _faults(3) * _omega_motor(3);
-    _cmd_vel_pub.publish( _comm );
+    
+    
+    cout << "Motor vels: " << _comm.angular_velocities[0] << " " << _comm.angular_velocities[1] << " " << _comm.angular_velocities[2] << " " << _comm.angular_velocities[3] << endl;
+    //_cmd_vel_pub.publish( _comm );
 
 
     //cout << "_comm.angular_velocities: " << _comm.angular_velocities[0] << ", " << _comm.angular_velocities[1] << ", " << _comm.angular_velocities[2] << ", " << _comm.angular_velocities[3] << endl;
@@ -902,12 +949,20 @@ void QUAD_CTRL::ctrl_loop() {
         _tau_b = -_Kr*_Er - _Kw*_Ew + Skew(_wbb)*_I_b*_wbb - _I_b*( Skew(_wbb)*_Rb.transpose()*_Rb_des*_wbb_des - _Rb.transpose()*_Rb_des*_wbbd_des );
         //---
 
-        controlInput(0) = _uT      ;
-        controlInput(1) = _tau_b(0);
-        controlInput(2) = _tau_b(1);
-        controlInput(3) = _tau_b(2);
-        w2 = _G.inverse() * controlInput;
+        controlInput(0) = _uT      ; //thrust
+        controlInput(1) = _tau_b(0); //roll
+        controlInput(2) = _tau_b(1); //pitch
+        controlInput(3) = _tau_b(2); //yaw
 
+  /*
+        controlInput(0) = 20.0; 
+        controlInput(1) = 0.0;
+        controlInput(2) = 0.0;
+        controlInput(3) = 0.0;
+*/
+
+        w2 = _G.inverse() * controlInput;
+        cout << "_G.inverse(): " << _G.inverse() << endl;
         extWesti();
 
         _comm.header.stamp = ros::Time::now();
