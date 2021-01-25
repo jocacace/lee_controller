@@ -56,10 +56,10 @@ motor_speed_topic: "/hummingbird/command/motor_speed"
 odometry_topic: "/hummingbird/ground_truth/odometry"
 model_name: "hummingbird"
 coaxial: False
-test_motors: True
+test_motors: False
 
 ##Network manager
-gen_th: 470
+gen_th: 350
 cnt_th: 40
-set_filename: "test.txt"
-test: True
+set_filename: "ts.txt"
+test: False

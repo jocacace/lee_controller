@@ -78,6 +78,7 @@ class NET_MANAGER {
         string _set_filename;
         bool _test;
         Vector3d _e_r;
+        bool _fault_critical;
 };
 
 
@@ -117,16 +118,13 @@ NET_MANAGER::NET_MANAGER() {
     }
     if( !_nh.getParam("test", _test)) {
         _test = false;
-    }
 
-    
+    }
 
     _landed_state = false;
     _first_odom = false;
     _traj_done = false;
     
-
-
     _ep_norm = 0.0;
     _er_norm = 0.0;
 
@@ -135,6 +133,7 @@ NET_MANAGER::NET_MANAGER() {
     std::string path = ros::package::getPath("lee_controller");
     _file_path = path + "/NN/TS/";    
     _fault_on = false;
+    _fault_critical = false;
 
     _ext_w.force.x = _ext_w.force.y = _ext_w.force.z = 0.0;
     _ext_w.torque.x = _ext_w.torque.y = _ext_w.torque.z = 0.0;
@@ -243,7 +242,8 @@ void NET_MANAGER::e_r_cb( geometry_msgs::Vector3 r ){
 void NET_MANAGER::gen_fault() {
     _fault_on = false;
     _traj_done = false;
-
+    _fault_critical = false;
+    
     const int gen_fault_num_range_from  = 0;
     const int gen_fault_num_range_to    = 500;
     std::random_device                  gen_fault_rand_dev;
@@ -257,27 +257,41 @@ void NET_MANAGER::gen_fault() {
     std::mt19937                        perc_generator(perc_rand_dev());
     std::uniform_real_distribution<float>  perc_distr(perc_damage_from, perc_damage_to);
  
+
+
+    const int motor_fault_num_range_from  = 0;
+    const int motor_fault_num_range_to    = 3;
+    std::random_device                  motor_fault_rand_dev;
+    std::mt19937                        motor_fault_generator(motor_fault_rand_dev());
+    std::uniform_int_distribution<int>  motor_fault_distr(motor_fault_num_range_from, motor_fault_num_range_to);
+
     bool gen = false;
 
 
-    sleep(5);
-    
+    sleep(2);
+    _faults.data[0] = 0.0;
+    _faults.data[1] = 0.0;
+    _faults.data[2] = 0.0;
+    _faults.data[3] = 0.0;
     while( !gen && !_traj_done ) {
         int gdata = gen_fault_distr( gen_fault_generator );
         gen = ( gdata > _gen_th ); 
+        //cout << "gdata: " << gdata << endl;
         sleep(1);
     }
 
     if ( !_traj_done ) {
         ROS_WARN("GEN Fault!");
         ROS_INFO("Fault generation");
-     
+        int index_motor = motor_fault_distr( motor_fault_generator );
+        cout << "Fault on motor: " << index_motor << endl;
         //Only on motor 0 right now
         float perc_damage = perc_distr( perc_generator );
-        _faults.data[0] = perc_damage;
-        _faults.data[1] = 0.0;
-        _faults.data[2] = 0.0;
-        _faults.data[3] = 0.0;
+        //index_motor = 0;
+        _faults.data[index_motor] = perc_damage;
+        //_faults.data[1] = 0.0;
+        //_faults.data[2] = 0.0;
+        //_faults.data[3] = 0.0;
         _fault_on = true;
         cout << "Fault percentige: " << perc_damage << endl;
     }
@@ -286,10 +300,6 @@ void NET_MANAGER::gen_fault() {
        
     }
 }
-
-
-
-
 
 void NET_MANAGER::gen_fault_req() {
 
@@ -388,18 +398,22 @@ void NET_MANAGER::move_to( Vector4d wp, double cv ) {
         
         _point_pub.publish( x.pose );
         _fault_pub.publish( _faults );        
-        if( _test ) 
+        if( !_test ) 
             ts_file << _ext_w.force.x << ", " << _ext_w.force.y << ", " <<  _ext_w.force.z << ", " << 
-            _ext_w.torque.x << ", " << _ext_w.torque.y << ", " << _ext_w.torque.z << ", " << ( _fault_on == true ) <<   endl;
+            _ext_w.torque.x << ", " << _ext_w.torque.y << ", " << _ext_w.torque.z << ", " << 
+            ( _faults.data[0] > 0.0 ) << ", " << ( _faults.data[1] > 0.0 ) << ", " << 
+            ( _faults.data[2] > 0.0 ) << ", " << ( _faults.data[3] > 0.0 ) << endl;
 
         if( _fault_on ) {
             if ( cnt++ > _cnt_th ) {
                 interrupt = true;
                 cout << "Cnt end!" << endl;
+                _fault_critical = false; 
             }
             if( fabs(_e_r(0)) > 0.35 || fabs(_e_r(1)) > 0.35 ) {
                 interrupt = true;
                 cout << "Stall" << endl;
+                _fault_critical = true;
             }
         }
 
@@ -552,6 +566,7 @@ void NET_MANAGER::test_fault() {
 }
 
 void NET_MANAGER::run(){
+    
     //boost::thread test_faults_t( &NET_MANAGER::test_fault, this);
     //boost::thread write_ts_t( &NET_MANAGER::write_ts, this);
     if( _test ) 

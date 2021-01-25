@@ -249,7 +249,6 @@ QUAD_CTRL::QUAD_CTRL() {
       _rp_th = 0.25;
     }
 
-
     if( !_nh.getParam("ll_kp_x", _ll_kp_x)) {
       _ll_kp_x = 5.0;
     }
