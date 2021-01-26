@@ -15,7 +15,7 @@ take_off_altitude: -0.6
 rate: 350
 l: 0.17
 c_T: 8.54858e-06
-c_a: -1.36780194e-7
+c_a: 1.36780194e-7
 m: 1.5
 
 
@@ -62,4 +62,4 @@ test_motors: False
 gen_th: 470
 cnt_th: 40
 set_filename: "test.txt"
-test: True
+test: False

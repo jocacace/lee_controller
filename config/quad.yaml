@@ -62,4 +62,4 @@ test_motors: True
 gen_th: 470
 cnt_th: 40
 set_filename: "test.txt"
-test: True
+test: False
