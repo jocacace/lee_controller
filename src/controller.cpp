@@ -251,10 +251,10 @@ QUAD_CTRL::QUAD_CTRL() {
     _G(2,2) = cos(rotor_angles[2])*arm_length[2]*_c_T;  
     _G(2,3) = cos(rotor_angles[3])*arm_length[3]*_c_T;
     
-    _G(3,0) = -_c_a;    
-    _G(3,1) = -_c_a;    
-    _G(3,2) = _c_a; 
-    _G(3,3) = _c_a;
+    _G(3,0) = _c_a;    
+    _G(3,1) = _c_a;    
+    _G(3,2) = ._c_a; 
+    _G(3,3) = ._c_a;
 
     cout << "The determinant of A is " << _G.determinant() << endl;
     cout << "G: " << endl << _G << endl;
@@ -352,10 +352,6 @@ QUAD_CTRL::QUAD_CTRL() {
     _Fe_integral_out.resize(6);
     _Fe_integral_out = Eigen::VectorXd::Zero(6);
   
-
-   
-
-
     _Qdot.resize(3,3);
     _uT = 0;
     _tau_b = Vector3d::Zero();
