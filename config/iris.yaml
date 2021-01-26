@@ -27,13 +27,13 @@ ll_kv_x: 15.0
 ll_kv_y: 15.0
 ll_kv_z: 3.0
 
-ll_kr_x: 90.0
-ll_kr_y: 90.0
-ll_kr_z: 90.0
+ll_kr_x: 1.0
+ll_kr_y: 1.0
+ll_kr_z: 1.0
 
-ll_kw_x: 20.0
-ll_kw_y: 20.0
-ll_kw_z: 20.0
+ll_kw_x: 1.0
+ll_kw_y: 1.0
+ll_kw_z: 1.0
 
 
 #ll_kp_x: 10.0

@@ -241,10 +241,10 @@ QUAD_CTRL::QUAD_CTRL() {
     //cout << "SIN: " << sin(rotor_angles[0]) << endl;
     //cout << "arm_length[0]: " << arm_length[0] << endl;
    
-    _G(1,0) = sin(rotor_angles[0])*arm_length[0]*_c_T;  
-    _G(1,1) = sin(rotor_angles[1])*arm_length[1]*_c_T; 
-    _G(1,2) = sin(rotor_angles[2])*arm_length[2]*_c_T;  
-    _G(1,3) = sin(rotor_angles[3])*arm_length[3]*_c_T;
+    _G(1,0) = -sin(rotor_angles[0])*arm_length[0]*_c_T;  
+    _G(1,1) = -sin(rotor_angles[1])*arm_length[1]*_c_T; 
+    _G(1,2) = -sin(rotor_angles[2])*arm_length[2]*_c_T;  
+    _G(1,3) = -sin(rotor_angles[3])*arm_length[3]*_c_T;
 
     _G(2,0) = cos(rotor_angles[0])*arm_length[0]*_c_T;  
     _G(2,1) = cos(rotor_angles[1])*arm_length[1]*_c_T; 
@@ -259,7 +259,7 @@ QUAD_CTRL::QUAD_CTRL() {
     cout << "The determinant of A is " << _G.determinant() << endl;
     cout << "G: " << endl << _G << endl;
     cout << "G: " << endl << _G.inverse() << endl;
-   // exit(0);
+    //exit(0);
 
 
 
@@ -800,7 +800,7 @@ void QUAD_CTRL::cmd_publisher() {
     
     
     cout << "Motor vels: " << _comm.angular_velocities[0] << " " << _comm.angular_velocities[1] << " " << _comm.angular_velocities[2] << " " << _comm.angular_velocities[3] << endl;
-    //_cmd_vel_pub.publish( _comm );
+    _cmd_vel_pub.publish( _comm );
 
 
     //cout << "_comm.angular_velocities: " << _comm.angular_velocities[0] << ", " << _comm.angular_velocities[1] << ", " << _comm.angular_velocities[2] << ", " << _comm.angular_velocities[3] << endl;
@@ -956,11 +956,11 @@ void QUAD_CTRL::ctrl_loop() {
         controlInput(3) = _tau_b(2); //yaw
         
 
-        controlInput(0) = 50.0; 
-        controlInput(1) = 0.0;
-        controlInput(2) = 0.0;
-        controlInput(3) = 5.0;
-        
+        //controlInput(0) = 50.0; 
+        //controlInput(1) = 5.0;
+        //controlInput(2) = 0.0;
+        //controlInput(3) = 0.0;
+        cout << "controlInput: " << controlInput << endl;
         w2 = _G.inverse() * controlInput;
 
         extWesti();
