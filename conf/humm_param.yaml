@@ -1,0 +1,16 @@
+model_name: hummingbird
+control_rate: 100
+motor_num: 4
+inertia: [0.0347563, 0.0458929, 0.0977]
+kp: [3, 3, 3]
+kd: [2.0, 2.0, 2.0]
+attitude_gain: [1.0, 1.0, 0.15]
+angular_rate_gain: [0.4, 0.52, 0.18]
+mass: 3.5
+gravity: 9.81
+motor_force_k: 8.54858e-06
+motor_moment_k: 0.016
+rotor_angles: [0, 1.57079632679, 3.14159265359, -1.57079632679]
+arm_length:  [0.17, 0.17, 0.17, 0.17]
+motor_rotation_direction: [-1, 1, -1, 1]
+

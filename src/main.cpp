@@ -349,12 +349,12 @@ bool generate_allocation_matrix(Eigen::MatrixXd & allocation_M,
         allocation_M(3, i) = -force_k;
     }
 
+    cout << "allocation_M: " << allocation_M << endl;
     Eigen::FullPivLU<Eigen::Matrix4Xd> lu( allocation_M);
     if ( lu.rank() < 4 ) {
         ROS_ERROR("The allocation matrix rank is lower than 4. This matrix specifies a not fully controllable system, check your configuration");
         return false;
     }
-
     return true;
 }
 
@@ -545,9 +545,12 @@ void CONTROLLER::ctrl_loop() {
 
         lc.controller( mes_p, des_p, mes_q, mes_dp, des_dp, des_ddp, des_yaw, mes_w, &ref_rotor_velocities);
     
+
         for(int i=0; i<motor_vel.data.size(); i++ ) {
             motor_vel.data[i] = ref_rotor_velocities[i]; 
         }
+
+        cout << "motor_vel.data: " << motor_vel.data[0] << " " << motor_vel.data[1] << " " << motor_vel.data[2] << " " << motor_vel.data[3] << endl; 
     
         _cmd_vel_motor_pub.publish( motor_vel );
 

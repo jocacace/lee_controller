@@ -102,6 +102,7 @@ void LEE_CONTROLLER::controller(    Eigen::Vector3d mes_p,
     angular_acceleration_thrust.block<3, 1>(0, 0) = angular_acceleration;
     angular_acceleration_thrust(3) = thrust;
 
+    //angular_acceleration_thrust << 0.0, 0.0, 5.0, -20.0;
 
     *rotor_velocities = _wd2rpm * angular_acceleration_thrust;
     *rotor_velocities = rotor_velocities->cwiseMax(Eigen::VectorXd::Zero(rotor_velocities->rows()));
