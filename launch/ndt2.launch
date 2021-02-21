@@ -1,0 +1,8 @@
+<?xml version="1.0" ?>
+
+<launch>
+	<rosparam command="load" file="$(find lee_controller)/conf/ndt2.yaml" />
+	<node pkg="lee_controller" name="lee_controller" type="lee_controller" output="screen">
+	</node>
+
+</launch>

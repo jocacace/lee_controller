@@ -1,0 +1,11 @@
+<?xml version="1.0" ?>
+
+<launch>
+
+	<rosparam command="load" file="$(find lee_controller)/conf/manager.yaml" />
+
+	<node pkg="lee_controller" name="manager_node" type="manager_node" output="screen">
+	</node>
+	
+
+</launch>

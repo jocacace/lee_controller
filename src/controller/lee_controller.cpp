@@ -35,7 +35,10 @@ void LEE_CONTROLLER::controller(    Eigen::Vector3d mes_p,
                                     Eigen::Vector3d des_ddp,
                                     double des_yaw,
                                     Eigen::Vector3d mes_w,
-                                    Eigen::VectorXd* rotor_velocities) {
+                                    Eigen::VectorXd* rotor_velocities,
+                                    Eigen::Vector4d* ft,
+                                    Eigen::Vector3d* perror,
+                                    Eigen::Vector3d* verror ) {
 
 
     Eigen::Vector3d normalized_attitude_gain;
@@ -50,15 +53,14 @@ void LEE_CONTROLLER::controller(    Eigen::Vector3d mes_p,
     Eigen::Vector3d acceleration;
     Eigen::Vector3d position_error;
     position_error = mes_p - des_p;
-   
+
     Eigen::Vector3d velocity_error;
     velocity_error = mes_dp - des_dp;
 
     acceleration = -(position_error.cwiseProduct(_kp)
       + velocity_error.cwiseProduct(_kd)) / _mass
-      - _gravity * e_3 - des_ddp;
+      - _gravity * e_3 + des_ddp;
   
-    
     Eigen::Vector3d angular_acceleration;
     Eigen::Matrix3d R = mes_q.toRotationMatrix();
     Eigen::Vector3d b1_des;
@@ -102,11 +104,13 @@ void LEE_CONTROLLER::controller(    Eigen::Vector3d mes_p,
     angular_acceleration_thrust.block<3, 1>(0, 0) = angular_acceleration;
     angular_acceleration_thrust(3) = thrust;
 
-    //angular_acceleration_thrust << 0.0, 0.0, 5.0, -20.0;
-
     *rotor_velocities = _wd2rpm * angular_acceleration_thrust;
+    *ft = angular_acceleration_thrust;
     *rotor_velocities = rotor_velocities->cwiseMax(Eigen::VectorXd::Zero(rotor_velocities->rows()));
     *rotor_velocities = rotor_velocities->cwiseSqrt();
+
+    *perror = position_error;
+    *verror = velocity_error;
   
 
     

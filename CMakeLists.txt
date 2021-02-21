@@ -14,6 +14,9 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   gazebo_msgs
   motion_planner
+  roslib
+  tf
+  tf_conversions
 )
 
 include_directories(/usr/include/eigen3)
@@ -137,5 +140,14 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable( lee_controller src/main.cpp src/controller/lee_controller.cpp)
+add_executable( lee_controller src/main.cpp src/controller/lee_controller.cpp src/extstim/extstim.cpp)
 target_link_libraries( lee_controller ${catkin_LIBRARIES}   )
+
+
+add_executable(manager_node src/network_manager.cpp src/planner_spline.cpp)
+target_link_libraries( manager_node ${catkin_LIBRARIES} )
+
+
+
+#add_executable(save_logs src/logs.cpp )
+#target_link_libraries( save_logs ${catkin_LIBRARIES} )

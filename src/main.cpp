@@ -1,138 +1,21 @@
 #include "ros/ros.h"
 #include "controller/lee_controller.h"
+#include "extstim/extstim.h"
 #include "nav_msgs/Odometry.h"
 #include "boost/thread.hpp"
 #include <Eigen/Eigen>
 #include "gazebo_msgs/ModelStates.h"
+#include "std_msgs/Bool.h"
 #include "std_msgs/Float32MultiArray.h"
 #include "motion_planner/generate_plan.h"
 #include "tf/tf.h"
+#include "utils.h"
+#include "gazebo_msgs/ModelState.h"
+#include <fstream>      // std::fstream
+#include "geometry_msgs/Wrench.h"
 
 using namespace std;
 using namespace Eigen;
-
-//---Helper functions 
-Matrix3d QuatToMat(Vector4d Quat){
-    Matrix3d Rot;
-    float s = Quat[0];
-    float x = Quat[1];
-    float y = Quat[2];
-    float z = Quat[3];
-    Rot << 1-2*(y*y+z*z),2*(x*y-s*z),2*(x*z+s*y),
-    2*(x*y+s*z),1-2*(x*x+z*z),2*(y*z-s*x),
-    2*(x*z-s*y),2*(y*z+s*x),1-2*(x*x+y*y);
-    return Rot;
-}
-
-Vector4d rot2quat(Matrix3d R){
-    float m00, m01, m02, m10, m11, m12, m20, m21, m22;
-
-    m00 = R(0,0);
-    m01 = R(0,1);
-    m02 = R(0,2);
-    m10 = R(1,0);
-    m11 = R(1,1);
-    m12 = R(1,2);
-    m20 = R(2,0);
-    m21 = R(2,1);
-    m22 = R(2,2);
-
-    float tr = m00 + m11 + m22;
-    float qw, qx, qy, qz, S;
-    Vector4d quat;
-
-    if (tr > 0) { 
-        S = sqrt(tr+1.0) * 2; // S=4*qw 
-        qw = 0.25 * S;
-        qx = (m21 - m12) / S;
-        qy = (m02 - m20) / S; 
-        qz = (m10 - m01) / S; 
-    } else if ((m00 > m11)&(m00 > m22)) { 
-        S = sqrt(1.0 + m00 - m11 - m22) * 2; // S=4*qx 
-        qw = (m21 - m12) / S;
-        qx = 0.25 * S;
-        qy = (m01 + m10) / S; 
-        qz = (m02 + m20) / S; 
-    } else if (m11 > m22) { 
-        S = sqrt(1.0 + m11 - m00 - m22) * 2; // S=4*qy
-        qw = (m02 - m20) / S;
-        qx = (m01 + m10) / S; 
-        qy = 0.25 * S;
-        qz = (m12 + m21) / S; 
-    } else { 
-        S = sqrt(1.0 + m22 - m00 - m11) * 2; // S=4*qz
-        qw = (m10 - m01) / S;
-        qx = (m02 + m20) / S;
-        qy = (m12 + m21) / S;
-        qz = 0.25 * S;
-    }
-
-    quat << qw, qx, qy, qz;
-    return quat;
-}
-	
-	
-Vector3d R2XYZ(Matrix3d R) {
-    double phi=0.0, theta=0.0, psi=0.0;
-    Vector3d XYZ = Vector3d::Zero();
-    
-    theta = asin(R(0,2));
-    
-    if(fabsf(cos(theta))>pow(10.0,-10.0))
-    {
-        phi=atan2(-R(1,2)/cos(theta), R(2,2)/cos(theta));
-        psi=atan2(-R(0,1)/cos(theta), R(0,0)/cos(theta));
-    }
-    else
-    {
-        if(fabsf(theta-M_PI/2.0)<pow(10.0,-5.0))
-        {
-            psi = 0.0;
-            phi = atan2(R(1,0), R(2,0));
-            theta = M_PI/2.0;
-        }
-        else
-        {
-            psi = 0.0;
-            phi = atan2(-R(1,0), R(2,0));
-            theta = -M_PI/2.0;
-        }
-    }
-    
-    XYZ << phi,theta,psi;
-    return XYZ;
-}
-
-Matrix3d XYZ2R(Vector3d angles) {
-    
-    Matrix3d R = Matrix3d::Zero(); 
-    Matrix3d R1 = Matrix3d::Zero(); 
-    Matrix3d R2 = Matrix3d::Zero(); 
-    Matrix3d R3 = Matrix3d::Zero();
-
-    float cos_phi = cos(angles[0]);
-    float sin_phi = sin(angles[0]);
-    float cos_theta = cos(angles[1]);
-    float sin_theta = sin(angles[1]);
-    float cos_psi = cos(angles[2]);
-    float sin_psi = sin(angles[2]);
-
-    R1  << 1, 0      , 0, 
-                0, cos_phi, -sin_phi, 
-                0, sin_phi, cos_phi;
-
-    R2  << cos_theta , 0, sin_theta, 
-                0        , 1, 0       , 
-                -sin_theta, 0, cos_theta;
-
-    R3  << cos_psi, -sin_psi, 0, 
-                sin_psi, cos_psi , 0,
-                0      , 0       , 1;
-
-    R = R1*R2*R3;
-
-    return R;
-}
 
 
 class CONTROLLER {
@@ -144,6 +27,13 @@ class CONTROLLER {
         void request_new_plan();
         bool get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor_size );
         void OdometryCallback(const nav_msgs::Odometry odometry_msg);
+        void sys_reset( std_msgs::Bool );
+        void system_reset();
+        void ffilter();
+        void cmd_publisher();
+        void goal_cb( geometry_msgs::Pose p );
+        void test_motors();
+        void write_logs();
 
     private:
 
@@ -156,6 +46,7 @@ class CONTROLLER {
         Eigen::Vector3d _velocity_gain;
         Eigen::Vector3d _attitude_gain;
         Eigen::Vector3d _angular_rate_gain;
+        Eigen::Vector4d _omega_motor;
         double _mass;
         double _gravity;
         vector<double> _rotor_angles;
@@ -165,14 +56,55 @@ class CONTROLLER {
         vector<int> _motor_rotation_direction;
         //---
 
+        Eigen::Vector3d _perror;
+        Eigen::Vector3d _verror;
+
         ros::NodeHandle _nh;
         ros::Subscriber _odom_sub;
+        ros::Subscriber _system_reset_req;
+        ros::Subscriber _goal_sub;
+
+        ros::Publisher _land_state_pub;
         ros::Publisher _cmd_vel_motor_pub;
+        ros::Publisher _model_state_pub;
+        ros::Publisher _controller_active;
+        ros::Publisher _ext_w_pub;
+
         nav_msgs::Odometry _odom;
         motion_planner::generate_plan _plan;
 
         bool _first_odom;
         bool _new_plan;
+
+        bool _sys_res;
+        double _spawning_z;
+        Vector3d _ref_p;
+        Vector3d _ref_dp;
+        Vector3d _ref_ddp;
+        double _ref_yaw;
+        double _ref_vel_max;
+        int _rate;
+        bool _restarting;
+        Vector3d _cmd_p;
+        Vector3d _cmd_dp;
+        Vector3d _cmd_ddp;
+        
+        Vector3d _Eta;
+        Vector3d _Eta_dot;
+        double _yaw_cmd;
+        double _ref_dyaw;
+        double _ref_ddyaw;
+        double _l_h; //Landing altitude     
+        bool _landed;
+        bool _test_motors;
+        Eigen::Vector3d _mes_p;
+        Eigen::Vector3d _mes_dp;
+        bool _save_logs;
+
+        double _ext_zita;
+        double _ext_omega_lin;
+        double _ext_omega_z;
+        double _ext_omega_tor;
 };
 
 
@@ -190,7 +122,28 @@ CONTROLLER::CONTROLLER(): _first_odom(false), _new_plan(false) {
     if( !_nh.getParam("motor_num", _motor_num) ) {
         _motor_num =  4;
     }
-    
+    if( !_nh.getParam("spawning_z", _spawning_z )) {
+        _spawning_z = 0.2;
+    }
+    if( !_nh.getParam("test_motors", _test_motors)) {
+      _test_motors = false;
+    }
+    if( !_nh.getParam("save_logs", _save_logs) ) {
+      _save_logs = false;
+    }
+    if( !_nh.getParam("ext_zita", _ext_zita)) {
+      _ext_zita = 1.0;  
+    }
+    if( !_nh.getParam("ext_omega_lin", _ext_omega_lin)) {
+      _ext_omega_lin = 5.0;  
+    }
+    if( !_nh.getParam("ext_omega_tor",_ext_omega_tor)) {
+      _ext_omega_tor = 5.0;  
+    }
+    if( !_nh.getParam("ext_omega_z", _ext_omega_z)) {
+      _ext_omega_z = 5.0;  
+    }
+
     vector<double> inertia;
     if( !_nh.getParam("inertia", inertia) ) {
         inertia.resize(3);
@@ -274,12 +227,35 @@ CONTROLLER::CONTROLLER(): _first_odom(false), _new_plan(false) {
     if( !_nh.getParam("motor_moment_k", _motor_moment_k) ) {
         _motor_moment_k = 1.6e-2;
     }
+    if( !_nh.getParam("rate", _rate)) {
+         _rate = 200;
+    }
 
     _odom_sub = _nh.subscribe(_model_name + "/odometry", 0, &CONTROLLER::OdometryCallback, this);
     _cmd_vel_motor_pub = _nh.advertise<std_msgs::Float32MultiArray>( _model_name + "/cmd/motor_vel", 0);
+    _system_reset_req = _nh.subscribe("/lee/sys_reset", 1, &CONTROLLER::sys_reset, this);
+    _model_state_pub = _nh.advertise< gazebo_msgs::ModelState >("/gazebo/set_model_state", 1);
+    _controller_active = _nh.advertise< std_msgs::Bool >("/lee/controller_active", 1);
+    _goal_sub = _nh.subscribe< geometry_msgs::Pose > ("/lee/goal", 1, &CONTROLLER::goal_cb, this );
+    _land_state_pub = _nh.advertise< std_msgs::Bool > ("/lee/landed", 1);
+    _ext_w_pub = _nh.advertise<geometry_msgs::Wrench>("/lee/ext_wrench", 1);
+    _sys_res = false;
+    _restarting = false;
 
+    _cmd_p << 0.0, 0.0, 0.0;
+    _cmd_dp << 0.0, 0.0, 0.0;
+    _cmd_ddp << 0.0, 0.0, 0.0;
+    _ref_yaw = 0.0;
+    _l_h = 0.25;
+    _landed = true;
+    _Eta.resize(3);
+    _omega_motor << 0.0, 0.0, 0.0, 0.0;
+    
 }
 
+void CONTROLLER::sys_reset( std_msgs::Bool d) {
+  _sys_res = d.data;
+}
 void CONTROLLER::request_new_plan() {
 
     float x, y, z, yaw;
@@ -292,44 +268,41 @@ void CONTROLLER::request_new_plan() {
         cout << "Request new plan for: [" << x << ", " << y << ", " << z << " - " << yaw << "]" << endl;
 
         //---flu -> NED
-        y = -y;
-        z = -z;
-        yaw = -yaw;
+        _cmd_p << x, -y, -z;
+        _yaw_cmd = -yaw;
         //---
-
-        _plan.request.p_i.position.x = _odom.pose.pose.position.x;
-        _plan.request.p_i.position.y = _odom.pose.pose.position.y;
-        _plan.request.p_i.position.z = _odom.pose.pose.position.z;
-        Vector3d eu = R2XYZ( QuatToMat ( Vector4d( _odom.pose.pose.orientation.w,  _odom.pose.pose.orientation.x, _odom.pose.pose.orientation.y, _odom.pose.pose.orientation.z ) ) );
-        
-        tf::Quaternion q;
-        q.setRPY(0, 0, eu(2));
-        q = q.normalize();
-
-        _plan.request.p_i.orientation.w = q.w();
-        _plan.request.p_i.orientation.x = q.x();
-        _plan.request.p_i.orientation.y = q.y();
-        _plan.request.p_i.orientation.z = q.z();
-
-
-        _plan.request.p_f.position.x = x;
-        _plan.request.p_f.position.y = y;
-        _plan.request.p_f.position.z = z;
-
-
-        Vector4d dq = rot2quat ( XYZ2R( Vector3d( 0, 0, yaw) ) );
-
-
-        _plan.request.p_f.orientation.w = dq[0];
-        _plan.request.p_f.orientation.x = dq[1];
-        _plan.request.p_f.orientation.y = dq[2];
-        _plan.request.p_f.orientation.z = dq[3];
-
-
-        if( client.call( _plan ) ) {
-          _new_plan = true;
-        }        
     }
+}
+
+void CONTROLLER::write_logs() {
+
+  ros::Rate r(100);
+
+  std::fstream log_file;
+  log_file.open ("/tmp/lee_logs.txt");
+
+  if (log_file.is_open())
+  {
+    cout << "lorem ipsum" << endl;
+  }
+  else
+  {
+    std::cout << "Error opening file" << endl;
+    exit(0);
+  }
+
+  while( ros::ok() ) {
+    log_file << _mes_p[0] << ", " << _mes_p[1] << ", " << _mes_p[2] << ", " << _ref_p[0] << ", " << _ref_p[1] << ", " << _ref_p[2] << ", " << 
+              _mes_dp[0] << ", " << _mes_dp[1] << ", " << _mes_dp[2] << ", " << _ref_dp[0] << ", " << _ref_dp[1] << ", " << _ref_dp[2] << ", " << 
+              _ref_ddp[0] << ", " << _ref_ddp[1] << ", " << _ref_ddp[2] << ","  << 
+              _perror[0] << ", " << _perror[1] << ", " << _perror[2] << ", " <<
+                _verror[0] << ", " << _verror[1] << ", " << _verror[2] << endl;
+
+    
+    r.sleep();
+  }
+
+  log_file.close();
 }
 
 bool generate_allocation_matrix(Eigen::MatrixXd & allocation_M, 
@@ -349,7 +322,6 @@ bool generate_allocation_matrix(Eigen::MatrixXd & allocation_M,
         allocation_M(3, i) = -force_k;
     }
 
-    cout << "allocation_M: " << allocation_M << endl;
     Eigen::FullPivLU<Eigen::Matrix4Xd> lu( allocation_M);
     if ( lu.rank() < 4 ) {
         ROS_ERROR("The allocation matrix rank is lower than 4. This matrix specifies a not fully controllable system, check your configuration");
@@ -359,107 +331,226 @@ bool generate_allocation_matrix(Eigen::MatrixXd & allocation_M,
 }
 
 
+void CONTROLLER::system_reset() {
 
-
-
-bool CONTROLLER::get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor_size ) {
-
-    allocation_M.resize(4, motor_size );
-
-    int i=0;
-    double rotor_angle = -0.533708;
-    double arm_length = 0.255;
-    double force_k = 8.54858e-06;
-    double moment_k = 1.6e-2;
-    double direction = 1.0;
-
-    
-    allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = direction * force_k * moment_k;
-    allocation_M(3, i) = -force_k;
-
-    i++;
-    rotor_angle = 2.565;
-    arm_length = 0.238;
-    direction = 1.0;
-    allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = direction * force_k * moment_k;
-    allocation_M(3, i) = -force_k;
-
-
-    i++;
-    rotor_angle = 0.533708;
-    arm_length = 0.255;
-    direction = -1.0;
-    allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = direction * force_k * moment_k;
-    allocation_M(3, i) = -force_k;
-
-
-    i++; 
-    rotor_angle = -2.565;
-    arm_length = 0.238;
-    direction = -1.0;
-    allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-    allocation_M(1, i) = cos( rotor_angle ) * arm_length * force_k;
-    allocation_M(2, i) = direction * force_k * moment_k;
-    allocation_M(3, i) = -force_k;
-    /*
-    for(int i=0; i<_motor_size; i++) {
-
-
-        double rotor_angle;
-        if( !_nh.getParam("rotor_configuration/" + std::to_string(i) + "/angle", rotor_angle) ) {
-            ROS_ERROR("Problem getting angle parameter");
-            return false;
-        }
-
-        double arm_length;
-        if( !_nh.getParam("rotor_configuration/" + std::to_string(i) + "/arm_length", arm_length) ) {
-            ROS_ERROR("Problem getting arm_length parameter");
-            return false;
-        }
-
-
-        double force_k;
-        if( !_nh.getParam("rotor_configuration/" + std::to_string(i) + "/force_k", force_k) ) {        
-            ROS_ERROR("Problem getting force_k parameter");
-            return false;
-        }
-
-        double moment_k;
-        if( !_nh.getParam("rotor_configuration/" + std::to_string(i) + "/moment_k", moment_k) ) {
-            ROS_ERROR("Problem getting moment_k parameter");    
-            return false;
-        }
-    
-        double direction;
-        if( !_nh.getParam("rotor_configuration/" + std::to_string(i) + "/direction", direction) ) {
-            ROS_ERROR("Problem getting direction parameter");   
-            return false; 
-        }
-    
-        allocation_M(0, i) =  sin( rotor_angle ) * arm_length * force_k;
-        allocation_M(1, i) = -cos( rotor_angle ) * arm_length * force_k;
-        allocation_M(2, i) = -direction * force_k * moment_k;
-        allocation_M(3, i) = force_k;
-    }
-    */
-    
-    Eigen::FullPivLU<Eigen::Matrix4Xd> lu( allocation_M);
-    if ( lu.rank() < 4 ) {
-        ROS_ERROR("The allocation matrix rank is lower than 4. This matrix specifies a not fully controllable system, check your configuration");
-        return false;
-    }
-
-
-
-    return true;
+  _first_odom = false;
+  gazebo_msgs::ModelState s;
+  s.model_name = _model_name;
+  s.pose.position.x = 0.0;
+  s.pose.position.y = 0.0;
+  s.pose.position.z = _spawning_z;
+  s.pose.orientation.w = 1.0;
+  s.pose.orientation.x = 0.0;
+  s.pose.orientation.y = 0.0;
+  s.pose.orientation.z = 0.0;
+  s.twist.linear.x = 0.0;
+  s.twist.linear.y = 0.0;
+  s.twist.linear.z = 0.0;
+  s.twist.angular.x = 0.0;
+  s.twist.angular.y = 0.0;
+  s.twist.angular.z = 0.0;
+  
+  for( int i=0; i<100; i++ ) {
+    _model_state_pub.publish( s );
+    usleep(0.01*1e6);
+  }
 }
 
+
+void CONTROLLER::ffilter(){
+  
+  //Params
+  double ref_jerk_max;
+  double ref_acc_max;
+  double ref_omega;
+  double ref_zita;
+
+  double ref_o_jerk_max;
+  double ref_o_acc_max;
+  double ref_o_vel_max;
+  
+
+  if( !_nh.getParam("ref_jerk_max", ref_jerk_max)) {
+      ref_jerk_max = 0.35;
+  }
+  if( !_nh.getParam("ref_acc_max", ref_acc_max)) {
+      ref_acc_max = 0.75;
+  }
+  if( !_nh.getParam("ref_vel_max", _ref_vel_max)) {
+      _ref_vel_max = 1.5;
+  }
+  if( !_nh.getParam("ref_omega", ref_omega)) {
+      ref_omega = 1.0;
+  }
+  if( !_nh.getParam("ref_zita", ref_zita)) {
+      ref_zita = 0.5;
+  }
+  
+  if( !_nh.getParam("ref_o_jerk_max", ref_o_jerk_max)) {
+      ref_o_jerk_max = 0.35;
+  }
+  if( !_nh.getParam("ref_o_acc_max", ref_o_acc_max)) {
+      ref_o_acc_max = 0.75;
+  }
+  if( !_nh.getParam("ref_o_vel_max", ref_o_vel_max)) {
+      ref_o_vel_max = 1.5;
+  }
+
+
+  while( !_first_odom ) usleep(0.1*1e6);
+
+  ros::Rate r(_rate);
+  double ref_T = 1.0/(double)_rate;
+    
+  _cmd_p << _odom.pose.pose.position.x, _odom.pose.pose.position.y, _odom.pose.pose.position.z;
+  _ref_p = _cmd_p;
+  
+  Vector3d ddp;
+  ddp << 0.0, 0.0, 0.0;
+  Vector3d dp;  
+  dp << 0.0, 0.0, 0.0;
+  _ref_dp << 0.0, 0.0, 0.0;  
+  _ref_ddp << 0.0, 0.0, 0.0;
+
+  _ref_yaw = _Eta(2);
+  _yaw_cmd = _Eta(2);
+
+  _ref_dyaw = 0;
+  _ref_ddyaw = 0;
+  double ddyaw = 0.0;
+  double dyaw = 0.0;
+
+
+  Vector3d ep;
+  ep << 0.0, 0.0, 0.0; 
+  Vector3d jerk;
+  jerk << 0.0, 0.0, 0.0;
+          
+  
+  while( ros::ok() ) {
+
+
+    if( _restarting) {
+
+      while( !_first_odom ) usleep(0.1*1e6);
+      _cmd_p << _odom.pose.pose.position.x, _odom.pose.pose.position.y, _odom.pose.pose.position.z;
+      _ref_p = _cmd_p;
+      ddp << 0.0, 0.0, 0.0;
+      dp << 0.0, 0.0, 0.0;
+      _ref_dp << 0.0, 0.0, 0.0;  
+      _ref_ddp << 0.0, 0.0, 0.0;
+      _ref_yaw = _Eta(2);
+      _yaw_cmd = _Eta(2);
+      _ref_dyaw = 0;
+      _ref_ddyaw = 0;
+      ddyaw = 0.0;
+      dyaw = 0.0;
+      ep << 0.0, 0.0, 0.0; 
+      jerk << 0.0, 0.0, 0.0;
+    }
+    else {
+      ep = _cmd_p - _ref_p;
+        
+      //cout << "_cmd_p: " << _cmd_p.transpose() << endl;
+      //cout << "_ref_f: " << _ref_p.transpose() << endl;
+
+      double eyaw = _yaw_cmd - _ref_yaw;
+
+      if(fabs(eyaw) > M_PI)
+        eyaw = eyaw - 2*M_PI* ((eyaw>0)?1:-1);
+
+      for(int i=0; i<3; i++ ) {
+        ddp(i) = ref_omega*ref_omega * ep(i) - 2.0 * ref_zita*ref_omega*_ref_dp(i);
+
+        jerk(i) = (ddp(i) - _ref_ddp(i))/ref_T;
+        if( fabs( jerk(i) > ref_jerk_max) ) {
+          if( jerk(i) > 0.0 ) jerk(i) = ref_jerk_max;
+          else jerk(i) = -ref_jerk_max;
+        } 
+
+        ddp(i) = _ref_ddp(i) + jerk(i)*ref_T;
+        if( fabs( ddp(i)) > ref_acc_max   ) {
+          if( ddp(i) > 0.0 )
+            _ref_ddp(i) = ref_acc_max;
+          else 
+            _ref_ddp(i) = -ref_acc_max;
+        }
+        else {
+          _ref_ddp(i) = ddp(i);
+        }
+
+        dp(i) = _ref_dp(i) + _ref_ddp(i) * ref_T;
+        if( fabs( dp(i) ) > _ref_vel_max )  {
+          if( dp(i) > 0.0 ) _ref_dp(i) = _ref_vel_max;
+          else _ref_dp(i) = -_ref_vel_max;
+        }
+        else 
+          _ref_dp(i) = dp(i);
+
+        _ref_p(i) += _ref_dp(i)*ref_T;
+
+      }
+
+
+      double ddyaw = ref_omega*ref_omega * eyaw - 2.0 * ref_zita*ref_omega*_ref_dyaw;
+      double o_jerk = (ddyaw - _ref_ddyaw)/ref_T;
+      if ( fabs ( o_jerk ) > ref_o_jerk_max ) {
+        if( o_jerk > 0.0 ) o_jerk = ref_o_jerk_max;
+        else o_jerk = -ref_o_jerk_max;
+      }
+
+      ddyaw = _ref_ddyaw + o_jerk*ref_T;
+      if( fabs( ddyaw ) > ref_o_acc_max ) {
+        if ( ddyaw > 0.0 ) _ref_ddyaw = ref_o_acc_max;
+        else if( ddyaw < 0.0 ) _ref_ddyaw = -ref_o_acc_max;
+      }
+      else 
+        _ref_ddyaw = ddyaw;
+
+      dyaw = _ref_dyaw + _ref_ddyaw*ref_T;
+      if( fabs( dyaw ) > ref_o_vel_max ) {
+        if( dyaw > 0.0 ) dyaw = ref_o_vel_max;
+        else dyaw = -ref_o_vel_max;
+      }
+      else 
+        _ref_dyaw = dyaw;
+
+      _ref_yaw += _ref_dyaw*ref_T;
+
+      r.sleep();
+    }
+  }
+}
+
+void CONTROLLER::cmd_publisher() {
+
+    ros::Rate r(_rate);
+    std_msgs::Float32MultiArray motor_vel;
+    motor_vel.data.resize( 4 );
+    
+    while( ros::ok() ) {
+
+
+        motor_vel.data[0] = _omega_motor(0);
+        motor_vel.data[1] = _omega_motor(1);
+        motor_vel.data[2] = _omega_motor(2);
+        motor_vel.data[3] = _omega_motor(3);
+        
+        _cmd_vel_motor_pub.publish( motor_vel );
+        //cout << "_comm.angular_velocities: " << _comm.angular_velocities[0] << ", " << _comm.angular_velocities[1] << ", " << _comm.angular_velocities[2] << ", " << _comm.angular_velocities[3] << endl;
+        r.sleep();
+    }
+}
+
+void CONTROLLER::goal_cb( geometry_msgs::Pose p ) {
+
+  _cmd_p << p.position.x, p.position.y, p.position.z;
+  Vector3d eu = utilities::quatToRpy( Vector4d( p.orientation.w, p.orientation.x, p.orientation.y, p.orientation.z ) );
+  _yaw_cmd = eu(2); 
+
+  cout << "p: " <<p << endl;
+
+}
 
 void CONTROLLER::ctrl_loop() {
 
@@ -473,7 +564,6 @@ void CONTROLLER::ctrl_loop() {
     des_dp << 0.0, 0.0, 0.0;
     des_ddp << 0.0, 0.0, 0.0;
 
-    Eigen::Vector3d mes_p;
     Eigen::Quaterniond mes_q;
     Eigen::Vector3d mes_dp;    
     Eigen::Vector3d mes_w;
@@ -482,19 +572,21 @@ void CONTROLLER::ctrl_loop() {
 
     Eigen::MatrixXd allocation_M;
     Eigen::MatrixXd wd2rpm;
+    std_msgs::Bool c_active;
+    c_active.data = false;
 
-                                
-    
     while( !_first_odom ) usleep(0.1*1e6);
-    boost::thread input_t( &CONTROLLER::request_new_plan, this);
+    _mes_p << _odom.pose.pose.position.x, _odom.pose.pose.position.y, _odom.pose.pose.position.z;
+    _mes_dp << _odom.twist.twist.linear.x, _odom.twist.twist.linear.y, _odom.twist.twist.linear.z;
 
     if(!generate_allocation_matrix( allocation_M, _motor_num, _rotor_angles, _arm_length, _motor_force_k, _motor_moment_k, _motor_rotation_direction ) ) {     
         cout << "Wrong allocation matrix" << endl;
         exit(0);
     }
 
-    Vector3d eu = R2XYZ( QuatToMat ( Vector4d( _odom.pose.pose.orientation.w,  _odom.pose.pose.orientation.x, _odom.pose.pose.orientation.y, _odom.pose.pose.orientation.z ) ) );
-    double des_yaw = eu(2);
+    boost::thread input_t( &CONTROLLER::request_new_plan, this);
+    boost::thread ffilter_t(&CONTROLLER::ffilter, this);
+    boost::thread cmd_publisher_t(&CONTROLLER::cmd_publisher, this);
 
     wd2rpm.resize( _motor_num, 4 );
     Eigen::Matrix4d I;
@@ -507,65 +599,159 @@ void CONTROLLER::ctrl_loop() {
     lc.set_controller_gains( _position_gain, _velocity_gain, _attitude_gain, _angular_rate_gain );
     lc.set_allocation_matrix( allocation_M );
 
-    std_msgs::Float32MultiArray motor_vel;
-    motor_vel.data.resize( _motor_num );
-    
+    EXTSTIM ext;
+    Eigen::Matrix<double,6,6> K1;
+    Eigen::Matrix<double,6,6> K2;
+    K1.diagonal() << 2.0, 2.0, 10.0, 2.0, 2.0, 2.0;
+    K2.diagonal() << 0.5, 0.5, 2.5, 0.5, 0.5, 0.5;
+
+    ext.set_dyn_param( _mass, _gravity, I.block<3,3>(0,0));
+    ext.set_gains( _ext_zita, _ext_omega_lin, _ext_omega_z, _ext_omega_tor );
+
+    //double _zita; // = 1.0;
+    //double _omega_lin; // = 5;
+    //double _omega_tor; // = 5;
+    //double _omega_z;            
+        
     int plan_index = 0;
-   
+    Eigen::VectorXd ref_rotor_velocities;
+    Eigen::Vector4d ft;
+    Eigen::Vector3d perror;
+    Eigen::Vector3d verror;
+
+    std::fstream log_file;
+    if( _save_logs ) {
+        log_file.open ("/tmp/lee_logs.txt", std::fstream::in | std::fstream::out | std::fstream::out);
+
+      if (log_file.is_open()) {
+        cout << "lorem ipsum" << endl;
+      }
+      else {
+        std::cout << "Error opening file" << endl;
+        exit(0);
+      }
+    }
+
+    Vector3d ext_f;
+    Vector3d ext_t;
+    geometry_msgs::Wrench extW;
+
     while( ros::ok() ) {
 
-        Eigen::VectorXd ref_rotor_velocities;
-        if( _new_plan ) {
-            _new_plan = false;
-            plan_index = 0;
-        }
-
-        if( _plan.response.traj.points.size() > 0.0 ) {
-            if( plan_index < _plan.response.traj.points[0].positions.size()-1 ) {
-                plan_index++;
-                des_p << _plan.response.traj.points[0].positions[plan_index], _plan.response.traj.points[1].positions[plan_index], _plan.response.traj.points[2].positions[plan_index];
-                des_dp << _plan.response.traj.points[0].velocities[plan_index], _plan.response.traj.points[1].velocities[plan_index], _plan.response.traj.points[2].velocities[plan_index];
-                des_ddp << _plan.response.traj.points[0].accelerations[plan_index], _plan.response.traj.points[1].accelerations[plan_index], _plan.response.traj.points[2].accelerations[plan_index];
-            
-                des_yaw = _plan.response.traj.points[3].positions[plan_index];
-            }
-        }
-
-        mes_p << _odom.pose.pose.position.x, _odom.pose.pose.position.y, _odom.pose.pose.position.z;
-        mes_dp << _odom.twist.twist.linear.x, _odom.twist.twist.linear.y, _odom.twist.twist.linear.z; 
+        //Measured
+        _mes_p << _odom.pose.pose.position.x, _odom.pose.pose.position.y, _odom.pose.pose.position.z;
+        _mes_dp << _odom.twist.twist.linear.x, _odom.twist.twist.linear.y, _odom.twist.twist.linear.z; 
         mes_q = Eigen::Quaterniond( _odom.pose.pose.orientation.w, _odom.pose.pose.orientation.x, _odom.pose.pose.orientation.y, _odom.pose.pose.orientation.z );
         mes_w << _odom.twist.twist.angular.x, _odom.twist.twist.angular.y, _odom.twist.twist.angular.z;  
-        Eigen::Matrix3d R = mes_q.toRotationMatrix();
-        mes_w = R.transpose()*mes_w;
 
-        //lc.controller( _motor_num, mes_p, des_p, mes_q, mes_dp, des_dp, des_ddp, des_yaw, mes_w,
-        //                                    _position_gain, _velocity_gain, normalized_attitude_gain, normalized_angular_rate_gain, wd2rpm, _mass, _gravity, &ref_rotor_velocities);
-    
-
-
-        lc.controller( mes_p, des_p, mes_q, mes_dp, des_dp, des_ddp, des_yaw, mes_w, &ref_rotor_velocities);
-    
-
-        for(int i=0; i<motor_vel.data.size(); i++ ) {
-            motor_vel.data[i] = ref_rotor_velocities[i]; 
+        if( _sys_res == true ) {
+            c_active.data = false;
+            _controller_active.publish( c_active );
+            ROS_INFO("System reset");
+            _restarting = true;
+            _omega_motor << 0.0, 0.0, 0.0, 0.0;
+            system_reset();
+            _sys_res = false;
+            ext.reset();
         }
+        else {
+            c_active.data = true;
 
-        cout << "motor_vel.data: " << motor_vel.data[0] << " " << motor_vel.data[1] << " " << motor_vel.data[2] << " " << motor_vel.data[3] << endl; 
-    
-        _cmd_vel_motor_pub.publish( motor_vel );
+            if(  fabs(_ref_p(2)) < _l_h && (fabs( _cmd_p(2) ) < 0.4) || _cmd_p(2) > 0.0 ) {
+                _omega_motor << 0.0, 0.0, 0.0, 0.0;
+                _landed = true;
+                ext.reset();
+            }
+            else {
 
+                Eigen::Matrix3d R = mes_q.toRotationMatrix();
+                mes_w = R.transpose()*mes_w;
+
+                lc.controller(_mes_p, _ref_p, mes_q, _mes_dp, _ref_dp, _ref_ddp, _ref_yaw, mes_w, &ref_rotor_velocities, &ft, &_perror, &_verror);    
+  
+                Eigen::Matrix3d Rb = utilities::QuatToMat ( Vector4d( _odom.pose.pose.orientation.w, _odom.pose.pose.orientation.x, _odom.pose.pose.orientation.y, _odom.pose.pose.orientation.z ) ); 
+                ext.estimation(Rb, mes_w, _mes_dp, ft[3], Vector3d( ft[0], ft[1], ft[2] ), double( _ctrl_rate ), ext_f, ext_t );        
+                            
+                //cout << "F: " << ext_f.norm() << endl;
+                //cout << "T: " << ext_t.norm() << endl;
+                //cout << "perror: " << _perror.norm() << endl;
+                ///cout << "T: " << ext_t.transpose() << endl;
+
+                extW.force.x = ext_f[0];
+                extW.force.y = ext_f[1];
+                extW.force.z = ext_f[2];
+
+                extW.torque.x = ext_t[0];
+                extW.torque.y = ext_t[1];
+                extW.torque.z = ext_t[2];
+
+                for(int i=0; i<4; i++ ) {
+                    _omega_motor[i] = ref_rotor_velocities[i]; 
+                }
+                _landed = false;
+
+                _ext_w_pub.publish( extW );
+
+            }
+
+            if( _save_logs ) {
+              log_file << _mes_p[0] << ", " << _mes_p[1] << ", " << _mes_p[2] << ", " <<   //1:3
+                          _ref_p[0] << ", " << _ref_p[1] << ", " << _ref_p[2] << ", " <<   //4:6
+                          _mes_dp[0] << ", " << _mes_dp[1] << ", " << _mes_dp[2] << ", " << //7:9
+                          _ref_dp[0] << ", " << _ref_dp[1] << ", " << _ref_dp[2] << ", " <<  //10:12
+                          _ref_ddp[0] << ", " << _ref_ddp[1] << ", " << _ref_ddp[2] << ","  <<  //13:15
+                          _perror[0] << ", " << _perror[1] << ", " << _perror[2] << ", " << //16:18
+                          _verror[0] << ", " << _verror[1] << ", " << _verror[2] << ", " << //19:21
+                          _cmd_p[0] << ", " << _cmd_p[1] << ", " << _cmd_p[2] << endl;      //22:24
+            }
+
+            _controller_active.publish( c_active );
+
+            std_msgs::Bool b;
+            b.data = _landed;
+            _land_state_pub.publish( b );   
+        }
         r.sleep();
     }
 }
 
 void CONTROLLER::OdometryCallback(const nav_msgs::Odometry odometry_msg) {
     _odom = odometry_msg;
+    _Eta = utilities::R2XYZ( utilities::QuatToMat ( Vector4d( _odom.pose.pose.orientation.w,  _odom.pose.pose.orientation.x, _odom.pose.pose.orientation.y, _odom.pose.pose.orientation.z ) ) );
     _first_odom = true;
 }
 
+
+void CONTROLLER::test_motors() {
+  std_msgs::Float32MultiArray motor_vel;
+  motor_vel.data.resize( 4 );
+  ros::Rate r(10);
+  while(ros::ok()) {
+    for(int i=0;i<4;i++) {
+        cout << "Test motor: " << i <<endl;
+        for(int k=0;k<4;k++) {
+          if ( k!= i)
+            motor_vel.data[k] = 0;
+
+        }
+        for(int j=0; j<10; j++) {
+          motor_vel.data[i] = 200;
+          _cmd_vel_motor_pub.publish( motor_vel );
+          r.sleep();
+        }
+    }
+    r.sleep();
+  }
+}
+
 void CONTROLLER::run() {
+  if ( _test_motors )
+      boost::thread test_motors_t( &CONTROLLER::test_motors, this );
+  else
     boost::thread ctrl_loop_t( &CONTROLLER::ctrl_loop, this );
-    ros::spin();
+    
+  //boost::thread write_logs_t(&CONTROLLER::write_logs, this);
+  ros::spin();
 }
 
 int main( int argc, char** argv ) {

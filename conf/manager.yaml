@@ -1,0 +1,8 @@
+model_name: hummingbird
+point_from_kb: True
+take_off_altitude: -0.6
+gen_th: 350
+cnt_th: 40
+set_filename: "ts.txt"
+test: False
+

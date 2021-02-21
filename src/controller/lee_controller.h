@@ -18,7 +18,10 @@ class LEE_CONTROLLER {
                         Eigen::Vector3d des_ddp,
                         double des_yaw,
                         Eigen::Vector3d mes_w,
-                        Eigen::VectorXd* rotor_velocities );
+                        Eigen::VectorXd* rotor_velocities,
+                        Eigen::Vector4d* ft,
+                        Eigen::Vector3d* perror,
+                        Eigen::Vector3d* verror );
 
         void set_allocation_matrix( Eigen::MatrixXd allocation_M );
         void set_controller_gains(Eigen::Vector3d kp, Eigen::Vector3d kd, Eigen::Vector3d attitude_gain, Eigen::Vector3d angular_rate_gain );
