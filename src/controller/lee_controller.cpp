@@ -38,9 +38,10 @@ void LEE_CONTROLLER::controller(    Eigen::Vector3d mes_p,
                                     Eigen::VectorXd* rotor_velocities,
                                     Eigen::Vector4d* ft,
                                     Eigen::Vector3d* perror,
-                                    Eigen::Vector3d* verror ) {
+                                    Eigen::Vector3d* verror,
+                                    Eigen::Vector3d* att_error ) {
 
-
+                                      
     Eigen::Vector3d normalized_attitude_gain;
     Eigen::Vector3d normalized_angular_rate_gain;
     normalized_attitude_gain = _attitude_gain.transpose() * _I.block(0,0,3,3).inverse();
@@ -84,7 +85,8 @@ void LEE_CONTROLLER::controller(    Eigen::Vector3d mes_p,
     Eigen::Vector3d angle_error;
     angle_error << angle_error_matrix(2, 1), angle_error_matrix(0,2), angle_error_matrix(1, 0);
     
-
+    *att_error = angle_error;
+    
     Eigen::Vector3d angular_rate_des(Eigen::Vector3d::Zero());
     angular_rate_des[2] = 0.1*des_yaw;
  

@@ -27,6 +27,7 @@ class CONTROLLER {
         void request_new_plan();
         bool get_allocation_matrix(Eigen::MatrixXd & allocation_M, int motor_size );
         void OdometryCallback(const nav_msgs::Odometry odometry_msg);
+        void fault_cb( std_msgs::Float32MultiArray fs);
         void sys_reset( std_msgs::Bool );
         void system_reset();
         void ffilter();
@@ -63,7 +64,8 @@ class CONTROLLER {
         ros::Subscriber _odom_sub;
         ros::Subscriber _system_reset_req;
         ros::Subscriber _goal_sub;
-
+        ros::Subscriber _fault_pub;
+        ros::Publisher _e_r_pub;
         ros::Publisher _land_state_pub;
         ros::Publisher _cmd_vel_motor_pub;
         ros::Publisher _model_state_pub;
@@ -105,6 +107,8 @@ class CONTROLLER {
         double _ext_omega_lin;
         double _ext_omega_z;
         double _ext_omega_tor;
+
+        Vector4d _faults;
 };
 
 
@@ -239,6 +243,8 @@ CONTROLLER::CONTROLLER(): _first_odom(false), _new_plan(false) {
     _goal_sub = _nh.subscribe< geometry_msgs::Pose > ("/lee/goal", 1, &CONTROLLER::goal_cb, this );
     _land_state_pub = _nh.advertise< std_msgs::Bool > ("/lee/landed", 1);
     _ext_w_pub = _nh.advertise<geometry_msgs::Wrench>("/lee/ext_wrench", 1);
+    _fault_pub = _nh.subscribe("/lee/faults", 1, &CONTROLLER::fault_cb, this);
+    _e_r_pub = _nh.advertise<geometry_msgs::Vector3>("/lee/er", 1);
     _sys_res = false;
     _restarting = false;
 
@@ -250,12 +256,18 @@ CONTROLLER::CONTROLLER(): _first_odom(false), _new_plan(false) {
     _landed = true;
     _Eta.resize(3);
     _omega_motor << 0.0, 0.0, 0.0, 0.0;
+    _faults << 1.0, 1.0, 1.0, 1.0;
     
 }
 
 void CONTROLLER::sys_reset( std_msgs::Bool d) {
   _sys_res = d.data;
 }
+
+void CONTROLLER::fault_cb( std_msgs::Float32MultiArray fs) {
+  _faults << (1.0-fs.data[0]), (1.0-fs.data[1]), (1.0-fs.data[2]), (1.0-fs.data[3]);
+}
+
 void CONTROLLER::request_new_plan() {
 
     float x, y, z, yaw;
@@ -354,6 +366,8 @@ void CONTROLLER::system_reset() {
     _model_state_pub.publish( s );
     usleep(0.01*1e6);
   }
+  _faults << 1.0, 1.0, 1.0, 1.0;
+
 }
 
 
@@ -531,13 +545,12 @@ void CONTROLLER::cmd_publisher() {
     while( ros::ok() ) {
 
 
-        motor_vel.data[0] = _omega_motor(0);
-        motor_vel.data[1] = _omega_motor(1);
-        motor_vel.data[2] = _omega_motor(2);
-        motor_vel.data[3] = _omega_motor(3);
-        
+        motor_vel.data[0] = _faults(0) * _omega_motor(0);
+        motor_vel.data[1] = _faults(1) * _omega_motor(1);
+        motor_vel.data[2] = _faults(2) * _omega_motor(2);
+        motor_vel.data[3] = _faults(3) * _omega_motor(3);        
         _cmd_vel_motor_pub.publish( motor_vel );
-        //cout << "_comm.angular_velocities: " << _comm.angular_velocities[0] << ", " << _comm.angular_velocities[1] << ", " << _comm.angular_velocities[2] << ", " << _comm.angular_velocities[3] << endl;
+
         r.sleep();
     }
 }
@@ -547,8 +560,6 @@ void CONTROLLER::goal_cb( geometry_msgs::Pose p ) {
   _cmd_p << p.position.x, p.position.y, p.position.z;
   Vector3d eu = utilities::quatToRpy( Vector4d( p.orientation.w, p.orientation.x, p.orientation.y, p.orientation.z ) );
   _yaw_cmd = eu(2); 
-
-  cout << "p: " <<p << endl;
 
 }
 
@@ -634,6 +645,8 @@ void CONTROLLER::ctrl_loop() {
 
     Vector3d ext_f;
     Vector3d ext_t;
+    Vector3d att_err;
+    geometry_msgs::Vector3 att_err_data;
     geometry_msgs::Wrench extW;
 
     while( ros::ok() ) {
@@ -655,61 +668,60 @@ void CONTROLLER::ctrl_loop() {
             ext.reset();
         }
         else {
-            c_active.data = true;
+          _restarting = false;
+          c_active.data = true;
 
-            if(  fabs(_ref_p(2)) < _l_h && (fabs( _cmd_p(2) ) < 0.4) || _cmd_p(2) > 0.0 ) {
-                _omega_motor << 0.0, 0.0, 0.0, 0.0;
-                _landed = true;
-                ext.reset();
-            }
-            else {
+          if( ( fabs(_ref_p(2)) < _l_h) && ( (fabs( _cmd_p(2)  < 0.4) ) || _cmd_p(2) > 0.0 ) ) {
+              _omega_motor << 0.0, 0.0, 0.0, 0.0;
+              _landed = true;
+              ext.reset();
+          }
+          else {
 
-                Eigen::Matrix3d R = mes_q.toRotationMatrix();
-                mes_w = R.transpose()*mes_w;
+              Eigen::Matrix3d R = mes_q.toRotationMatrix();
+              mes_w = R.transpose()*mes_w;
 
-                lc.controller(_mes_p, _ref_p, mes_q, _mes_dp, _ref_dp, _ref_ddp, _ref_yaw, mes_w, &ref_rotor_velocities, &ft, &_perror, &_verror);    
-  
-                Eigen::Matrix3d Rb = utilities::QuatToMat ( Vector4d( _odom.pose.pose.orientation.w, _odom.pose.pose.orientation.x, _odom.pose.pose.orientation.y, _odom.pose.pose.orientation.z ) ); 
-                ext.estimation(Rb, mes_w, _mes_dp, ft[3], Vector3d( ft[0], ft[1], ft[2] ), double( _ctrl_rate ), ext_f, ext_t );        
-                            
-                //cout << "F: " << ext_f.norm() << endl;
-                //cout << "T: " << ext_t.norm() << endl;
-                //cout << "perror: " << _perror.norm() << endl;
-                ///cout << "T: " << ext_t.transpose() << endl;
+              lc.controller(_mes_p, _ref_p, mes_q, _mes_dp, _ref_dp, _ref_ddp, _ref_yaw, mes_w, &ref_rotor_velocities, &ft, &_perror, &_verror, &att_err);   
+              ext.estimation(R, mes_w, _mes_dp, ft[3], Vector3d( ft[0], ft[1], ft[2] ), double( _ctrl_rate ), ext_f, ext_t );        
+            
+              extW.force.x = ext_f[0];
+              extW.force.y = ext_f[1];
+              extW.force.z = ext_f[2];
 
-                extW.force.x = ext_f[0];
-                extW.force.y = ext_f[1];
-                extW.force.z = ext_f[2];
+              extW.torque.x = ext_t[0];
+              extW.torque.y = ext_t[1];
+              extW.torque.z = ext_t[2];
 
-                extW.torque.x = ext_t[0];
-                extW.torque.y = ext_t[1];
-                extW.torque.z = ext_t[2];
+              //cout << "att_err: " << att_err.transpose() << endl;
+              att_err_data.x = att_err[0];
+              att_err_data.y = att_err[1];
+              att_err_data.z = att_err[2];
 
-                for(int i=0; i<4; i++ ) {
-                    _omega_motor[i] = ref_rotor_velocities[i]; 
-                }
-                _landed = false;
+              for(int i=0; i<4; i++ ) {
+                  _omega_motor[i] = ref_rotor_velocities[i]; 
+              }
+              _landed = false;
 
-                _ext_w_pub.publish( extW );
+              _ext_w_pub.publish( extW );
+              _e_r_pub.publish( att_err_data );
+          }
 
-            }
+          if( _save_logs ) {
+            log_file << _mes_p[0] << ", " << _mes_p[1] << ", " << _mes_p[2] << ", " <<   //1:3
+                        _ref_p[0] << ", " << _ref_p[1] << ", " << _ref_p[2] << ", " <<   //4:6
+                        _mes_dp[0] << ", " << _mes_dp[1] << ", " << _mes_dp[2] << ", " << //7:9
+                        _ref_dp[0] << ", " << _ref_dp[1] << ", " << _ref_dp[2] << ", " <<  //10:12
+                        _ref_ddp[0] << ", " << _ref_ddp[1] << ", " << _ref_ddp[2] << ","  <<  //13:15
+                        _perror[0] << ", " << _perror[1] << ", " << _perror[2] << ", " << //16:18
+                        _verror[0] << ", " << _verror[1] << ", " << _verror[2] << ", " << //19:21
+                        _cmd_p[0] << ", " << _cmd_p[1] << ", " << _cmd_p[2] << endl;      //22:24
+          }
 
-            if( _save_logs ) {
-              log_file << _mes_p[0] << ", " << _mes_p[1] << ", " << _mes_p[2] << ", " <<   //1:3
-                          _ref_p[0] << ", " << _ref_p[1] << ", " << _ref_p[2] << ", " <<   //4:6
-                          _mes_dp[0] << ", " << _mes_dp[1] << ", " << _mes_dp[2] << ", " << //7:9
-                          _ref_dp[0] << ", " << _ref_dp[1] << ", " << _ref_dp[2] << ", " <<  //10:12
-                          _ref_ddp[0] << ", " << _ref_ddp[1] << ", " << _ref_ddp[2] << ","  <<  //13:15
-                          _perror[0] << ", " << _perror[1] << ", " << _perror[2] << ", " << //16:18
-                          _verror[0] << ", " << _verror[1] << ", " << _verror[2] << ", " << //19:21
-                          _cmd_p[0] << ", " << _cmd_p[1] << ", " << _cmd_p[2] << endl;      //22:24
-            }
+          _controller_active.publish( c_active );
 
-            _controller_active.publish( c_active );
-
-            std_msgs::Bool b;
-            b.data = _landed;
-            _land_state_pub.publish( b );   
+          std_msgs::Bool b;
+          b.data = _landed;
+          _land_state_pub.publish( b );   
         }
         r.sleep();
     }

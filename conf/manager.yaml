@@ -1,3 +1,4 @@
+##---Hummingbird + configuration
 model_name: hummingbird
 point_from_kb: True
 take_off_altitude: -0.6
@@ -5,4 +6,28 @@ gen_th: 350
 cnt_th: 40
 set_filename: "ts.txt"
 test: False
-
+test_fault: False
+min_p_fault: 0.005
+max_p_fault: 0.1
+##---
+### iris x configuration
+#model_name: iris
+#point_from_kb: True
+#take_off_altitude: -0.6
+#gen_th: 350
+#cnt_th: 40
+#set_filename: "ts.txt"
+#test: False
+#test_fault: False
+#min_p_fault: 0.1
+#max_p_fault: 0.9
+#model_name: ndt2
+#point_from_kb: True
+#take_off_altitude: -0.6
+#gen_th: 350
+#cnt_th: 40
+#set_filename: "ts.txt"
+#test: False
+#test_fault: False
+#min_p_fault: 0.1
+#max_p_fault: 0.9

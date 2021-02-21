@@ -3,11 +3,11 @@ control_rate: 100
 motor_num: 4
 
 inertia: [0.29163, 0.29163, 0.3527]
-kp: [6, 6, 6]
+kp: [10, 10, 10]
 kd: [4.7, 4.7, 4.7]
 attitude_gain: [2.0, 3.0, 0.15]
 angular_rate_gain: [0.4, 0.52, 0.18]
-mass: 1.5
+mass: 1.51
 gravity: 9.81
 motor_force_k: 8.54858e-05
 motor_moment_k: 1.6e-2

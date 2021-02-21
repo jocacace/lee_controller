@@ -80,6 +80,9 @@ class NET_MANAGER {
         Vector3d _e_r;
         bool _fault_critical;
         string _model_name;
+        bool _test_fault;
+        double _min_p_fault;
+        double _max_p_fault;
 };
 
 
@@ -123,8 +126,18 @@ NET_MANAGER::NET_MANAGER() {
     }
     if( !_nh.getParam("test", _test)) {
         _test = false;
-
     }
+    if( !_nh.getParam("test_fault", _test_fault)) {
+        _test_fault = false;
+    }
+    if( !_nh.getParam("min_p_fault", _min_p_fault)) {
+        _min_p_fault = 0.005;
+    }
+    if( !_nh.getParam("max_p_fault", _max_p_fault)) {
+        _max_p_fault = 0.1;
+    }
+
+    
 
     _landed_state = false;
     _first_odom = false;
@@ -211,7 +224,6 @@ NET_MANAGER::~NET_MANAGER() {
 }
 
 void NET_MANAGER::takeoff() {
-    cout << "takeoff" << endl;
 
     geometry_msgs::Pose p;
     p.position.x = _P(0);
@@ -219,7 +231,6 @@ void NET_MANAGER::takeoff() {
     p.position.z = _P(2) + _take_off_altitude; 
 
     Vector4d q = utilities::RpyToQuat( Vector3d(0, 0, _Eta(2) ) );
-
     p.orientation.w = q(0);
     p.orientation.x = q(1);
     p.orientation.y = q(2);
@@ -230,13 +241,10 @@ void NET_MANAGER::takeoff() {
     bool reached = false;
     while( !reached ) { 
 
-        cout << "reached not" << endl;
-        Vector3d eu = utilities::quatToRpy( Vector4d( p.orientation.w, p.orientation.x, p.orientation.y, p.orientation.z ) );
-        cout << "p: " << (_P - Vector3d( p.position.x, p.position.y, p.position.z ) ).norm() << endl;
-        cout << "o: " << ( fabs(_Eta(2) - eu(2)) < 0.05 ) << endl;
-        
+        Vector3d eu = utilities::quatToRpy( Vector4d( p.orientation.w, p.orientation.x, p.orientation.y, p.orientation.z ) );      
         reached = ( (_P - Vector3d( p.position.x, p.position.y, p.position.z ) ).norm()  < 0.05 ) && ( fabs(_Eta(2) - eu(2)) < 0.05 ) ; 
         r.sleep();
+
         _point_pub.publish( p );
 
     }
@@ -263,15 +271,12 @@ void NET_MANAGER::gen_fault() {
     std::mt19937                        gen_fault_generator(gen_fault_rand_dev());
     std::uniform_int_distribution<int>  gen_fault_distr(gen_fault_num_range_from, gen_fault_num_range_to);
 
-
-    const float perc_damage_from  = 0.1; // 10%
-    const float perc_damage_to    = 0.9;  //90%  
+    const float perc_damage_from  = _min_p_fault; //x: 0.1 - 0.9
+    const float perc_damage_to    = _max_p_fault;  
     std::random_device                  perc_rand_dev;
     std::mt19937                        perc_generator(perc_rand_dev());
     std::uniform_real_distribution<float>  perc_distr(perc_damage_from, perc_damage_to);
  
-
-
     const int motor_fault_num_range_from  = 0;
     const int motor_fault_num_range_to    = 3;
     std::random_device                  motor_fault_rand_dev;
@@ -279,7 +284,6 @@ void NET_MANAGER::gen_fault() {
     std::uniform_int_distribution<int>  motor_fault_distr(motor_fault_num_range_from, motor_fault_num_range_to);
 
     bool gen = false;
-
 
     sleep(2);
     _faults.data[0] = 0.0;
@@ -346,8 +350,6 @@ void NET_MANAGER::gen_fault_req() {
 }
 
 void NET_MANAGER::move_to( Vector4d wp, double cv ) {
-
-    cout << "New wp: " << wp.transpose() << " - CV: " << cv << endl;
 
     std::vector<geometry_msgs::PoseStamped> poses;
     std::vector<double> times;
@@ -441,7 +443,7 @@ void NET_MANAGER::move_to( Vector4d wp, double cv ) {
 void NET_MANAGER::net_loop() {
 
     while( !_first_odom ) usleep(0.1*1e6);
-cout << "_first_odom" << endl;
+
     geometry_msgs::Pose dp;
 
     ros::Rate r(10);
@@ -515,7 +517,6 @@ cout << "_first_odom" << endl;
         int n_wp = wp_distr(wp_generator);
         wps.resize ( n_wp );
         cvs.resize ( n_wp );
-        cout << "Path: " << n_wp << " segments" << endl;
 
         for(int i=0; i<n_wp; i++ ) {
             float x = xy_distr(xy_generator);
@@ -529,7 +530,6 @@ cout << "_first_odom" << endl;
 
     
         ROS_INFO("Start faulty session");
-        cout << "_landed_state: " << _landed_state << endl;
         if( _landed_state ) {
             takeoff();
         }
@@ -544,9 +544,6 @@ cout << "_first_odom" << endl;
             usleep(0.1*1e6);
             i++;
         }
-
-        //if fault on: record a bit more and exit
-
 
         _landed_state = true;
         std_msgs::Bool reset;
@@ -584,12 +581,14 @@ void NET_MANAGER::test_fault() {
 
 void NET_MANAGER::run(){
     
-    //boost::thread test_faults_t( &NET_MANAGER::test_fault, this);
     //boost::thread write_ts_t( &NET_MANAGER::write_ts, this);
     if( _test ) 
         boost::thread gen_fault_req_t(  &NET_MANAGER::gen_fault_req, this );
-        
-    boost::thread net_loop_t ( &NET_MANAGER::net_loop, this );
+    else if( _test_fault ) {
+        boost::thread test_faults_t( &NET_MANAGER::test_fault, this);
+    }    
+    else
+        boost::thread net_loop_t ( &NET_MANAGER::net_loop, this );
     ros::spin();
 }
 

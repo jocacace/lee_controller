@@ -2,11 +2,11 @@ model_name: iris
 control_rate: 100
 motor_num: 4
 inertia: [0.0347563, 0.0458929, 0.0977]
-kp: [6, 6, 6]
-kd: [4.7, 4.7, 4.7]
+kp: [15, 15, 15]
+kd: [5.7, 5.7, 5.7]
 attitude_gain: [2.0, 3.0, 0.15]
 angular_rate_gain: [0.4, 0.52, 0.18]
-mass: 1.5
+mass: 1.515
 gravity: 9.81
 motor_force_k: 8.54858e-06
 motor_moment_k: 1.6e-2
