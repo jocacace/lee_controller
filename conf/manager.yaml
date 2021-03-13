@@ -4,7 +4,7 @@ point_from_kb: True
 take_off_altitude: -0.6
 gen_th: 350
 cnt_th: 40
-set_filename: "ts.txt"
+set_filename: "humm_test.txt"
 test: False
 test_fault: False
 min_p_fault: 0.005

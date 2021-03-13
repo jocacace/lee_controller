@@ -4,7 +4,7 @@
 #include <tf_conversions/tf_eigen.h>
 #include <tf/transform_listener.h>
 #include <eigen3/Eigen/Dense>
-#include "mav_msgs/Actuators.h"
+//#include "mav_msgs/Actuators.h"
 #include <tf/tf.h>
 #include "utils.h"
 #include "std_msgs/Bool.h"
@@ -407,8 +407,10 @@ void NET_MANAGER::move_to( Vector4d wp, double cv ) {
 
     bool interrupt = false; 
     int cnt = 0;
-    if( !_test ) ts_file << "====" << endl;
-
+    if( !_test ) {
+        ts_file << "====" << endl;
+        ts_file << "Fx,Fy,Fz,Mx,My,Mz,m1,m2,m3,m4" << endl;
+    }
     while( (_cp->getNext(x, xd, xdd)) && !interrupt  ) {
         
         _point_pub.publish( x.pose );
