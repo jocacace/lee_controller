@@ -32,8 +32,8 @@ MOTORS = 4
 
 rospack = rospkg.RosPack()
 pkg_path = rospack.get_path('lee_controller')
-ts_path = pkg_path + "/NN/TS/humm_ts.txt"
-validation_path = pkg_path + "/NN/TS/test.txt"
+ts_path = pkg_path + "/NN/TS/iris_val.txt"
+validation_path = pkg_path + "/NN/TS/iris_val.txt"
 
 count = 0
 ts_file = open(ts_path)
@@ -98,7 +98,8 @@ else:
     print("Else")
 
     
-model = tf.keras.models.load_model("/home/jcacace/Neural_net_v5.model") #Rete neurale rottura motori
+#model = tf.keras.models.load_model("/home/jcacace/Neural_net_v5.model") #Rete neurale rottura motori
+model = tf.keras.models.load_model(pkg_path + "/NN/TS/model/netQuadcross.model")
 
 tot = 0
 wrong = 0
@@ -110,6 +111,7 @@ m4 = 0
 for i in range(0, len(X) ):
     input_value = X[i][0].reshape((1,1,6))
     prediction = model.predict( input_value )
+    
     if( prediction[0][0][0] < 0.8 ):
         m1 = 0
     else:
@@ -129,6 +131,36 @@ for i in range(0, len(X) ):
         m4 = 0
     else:
         m4 = 1
+
+    tot = tot + 1
+    check = ( m1 -  Y[i][0]) + (m2 -  Y[i][1]) + (m3 -  Y[i][2]) + (m4 -  Y[i][3])
+    
+    if( math.fabs( check ) > 0 ):
+        print("prediction: ", prediction, " real: ", Y[i][0], " ", Y[i][1], " ", Y[i][2], " ", Y[i][3])
+        wrong = wrong +1
+    
+
+    '''
+    if( prediction[0][0] < 0.8 ):
+        m1 = 0
+    else:
+        m1 = 1
+
+    if( prediction[0][1] < 0.8 ):
+        m2 = 0
+    else:
+        m2 = 1
+
+    if( prediction[0][2] < 0.8 ):
+        m3 = 0
+    else:
+        m3 = 1
+
+    if( prediction[0][3] < 0.8 ):
+        m4 = 0
+    else:
+        m4 = 1
+    '''
 
     tot = tot + 1
     check = ( m1 -  Y[i][0]) + (m2 -  Y[i][1]) + (m3 -  Y[i][2]) + (m4 -  Y[i][3])

@@ -401,26 +401,24 @@ void NET_MANAGER::move_to( Vector4d wp, double cv ) {
     geometry_msgs::TwistStamped xd;
     geometry_msgs::AccelStamped xdd;
     
-    ofstream ts_file( _file_path + "/" + _set_filename + "_data.txt",  std::ios_base::app);
-    ofstream target_file( _file_path + "/" + _set_filename + "_target.txt",  std::ios_base::app);
+    ofstream ts_file( _file_path + "/" + _set_filename + ".txt",  std::ios_base::app);
 
     ros::Rate r(10);
 
     bool interrupt = false; 
     int cnt = 0;
-    //if( !_test ) {
-    //    ts_file << "====" << endl;
-    //    ts_file << "Fx,Fy,Fz,Mx,My,Mz,m1,m2,m3,m4" << endl;
-    //}
+    if( !_test ) {
+        ts_file << "====" << endl;
+        ts_file << "Fx,Fy,Fz,Mx,My,Mz,m1,m2,m3,m4" << endl;
+    }
     while( (_cp->getNext(x, xd, xdd)) && !interrupt  ) {
         
         _point_pub.publish( x.pose );
         _fault_pub.publish( _faults );        
         if( !_test ) 
             ts_file << _ext_w.force.x << ", " << _ext_w.force.y << ", " <<  _ext_w.force.z << ", " << 
-            _ext_w.torque.x << ", " << _ext_w.torque.y << ", " << _ext_w.torque.z << endl; 
-            
-            target_file << ( _faults.data[0] > 0.0 ) << ", " << ( _faults.data[1] > 0.0 ) << ", " << 
+            _ext_w.torque.x << ", " << _ext_w.torque.y << ", " << _ext_w.torque.z << ", " << 
+            ( _faults.data[0] > 0.0 ) << ", " << ( _faults.data[1] > 0.0 ) << ", " << 
             ( _faults.data[2] > 0.0 ) << ", " << ( _faults.data[3] > 0.0 ) << endl;
 
         if( _fault_on ) {
@@ -431,7 +429,7 @@ void NET_MANAGER::move_to( Vector4d wp, double cv ) {
             }
             if( fabs(_e_r(0)) > 0.35 || fabs(_e_r(1)) > 0.35 ) {
                 interrupt = true;
-                cout << "Stall" << endl; //
+                cout << "Stall" << endl;
                 _fault_critical = true;
             }
         }
@@ -440,7 +438,7 @@ void NET_MANAGER::move_to( Vector4d wp, double cv ) {
     }
 
     ts_file.close();
-target_file.close();
+
 
 }
 
