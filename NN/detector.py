@@ -14,7 +14,7 @@ from std_msgs.msg import Float32MultiArray
 from std_msgs.msg import Float32
 import numpy as np
 import tensorflow as tf
-
+from lee_controller.msg import fault
 from geometry_msgs.msg import Wrench
 
 rospack = rospkg.RosPack()
@@ -27,8 +27,11 @@ class detector():
         rospy.init_node('fault_detector_nn')
         print ("Detector class")
         rospy.Subscriber("/lee/ext_wrench", Wrench, self.ext_wrench_cb)
+        self.fault_pub = rospy.Publisher('/motor_fault', fault, queue_size=1)
         self.ext_wrench = Wrench()
         self.ext_wrench_ready = False
+        self.fault_data = fault()
+        self.window = 10
 
     def ext_wrench_cb(self, msg):
         self.ext_wrench = msg 
@@ -37,7 +40,19 @@ class detector():
     def run(self):
         rate = rospy.Rate(100) # 10hz
 
-        model = tf.keras.models.load_model( pkg_path + "/NN/model/net1.model") #Rete neurale rottura motori
+        model = tf.keras.models.load_model( pkg_path + "/NN/TS/model/netQuadplus.model") #Rete neurale rottura motori
+
+        m1 = 0
+        m2 = 0
+        m3 = 0
+        m4 = 0
+
+        fault_itr_m0 = 0
+        fault_itr_m1 = 0
+        fault_itr_m2 = 0
+        fault_itr_m3 = 0
+
+        new_fault = False
 
         while not rospy.is_shutdown():
             
@@ -47,7 +62,66 @@ class detector():
 
                 input_value = input_value_raw.reshape((1,1,6))
                 prediction = model.predict(input_value)
-                print("prediction: ", prediction)
+               
+                if( prediction[0][0][0] < 0.8 ):
+                    m1 = 0
+                else:
+                    m1 = 1
+
+                if( prediction[0][0][1] < 0.8 ):
+                    m2 = 0
+                else:
+                    m2 = 1
+
+                if( prediction[0][0][2] < 0.8 ):
+                    m3 = 0
+                else:
+                    m3 = 1
+
+                if( prediction[0][0][3] < 0.8 ):
+                    m4 = 0
+                else:
+                    m4 = 1
+
+                #print ( m1, " ", m2, " ", m3, " ", m4)
+                
+                if m1 > 0:
+                    fault_itr_m0 = fault_itr_m0+1
+                else:
+                    fault_itr_m0 = 0
+
+                if m2 > 0:
+                    fault_itr_m1 = fault_itr_m1+1
+                else:
+                    fault_itr_m1 = 0
+
+                if m3 > 0:
+                    fault_itr_m2 = fault_itr_m2+1
+                else:
+                    fault_itr_m2 = 0
+
+                if m4 > 0:
+                    fault_itr_m3 = fault_itr_m3+1
+                else:
+                    fault_itr_m3 = 0
+
+                if fault_itr_m0 > self.window or fault_itr_m1 > self.window or fault_itr_m2 > self.window or fault_itr_m3 > self.window:
+                    self.fault_data.fault.data = True                    
+                else: 
+                    self.fault_data.fault.data = False                    
+                    self.fault_data.m.data = -1
+                    
+                if self.fault_data.fault.data == True:
+                    if fault_itr_m0 > self.window:
+                        self.fault_data.m.data = 0
+                    if fault_itr_m1 > self.window:
+                        self.fault_data.m.data = 1
+                    if fault_itr_m2 > self.window:
+                        self.fault_data.m.data = 2
+                    if fault_itr_m3 > self.window:
+                        self.fault_data.m.data = 3
+
+                self.fault_pub.publish( self.fault_data )
 
             rate.sleep()
 

@@ -83,6 +83,7 @@ class NET_MANAGER {
         bool _test_fault;
         double _min_p_fault;
         double _max_p_fault;
+        bool _fault_on_req;
 };
 
 
@@ -136,7 +137,9 @@ NET_MANAGER::NET_MANAGER() {
     if( !_nh.getParam("max_p_fault", _max_p_fault)) {
         _max_p_fault = 0.1;
     }
-
+    if( !_nh.getParam("fault_on_req", _fault_on_req)) {
+        _fault_on_req = false;
+    }
     
 
     _landed_state = false;
@@ -293,7 +296,6 @@ void NET_MANAGER::gen_fault() {
     while( !gen && !_traj_done ) {
         int gdata = gen_fault_distr( gen_fault_generator );
         gen = ( gdata > _gen_th ); 
-        //cout << "gdata: " << gdata << endl;
         sleep(1);
     }
 
@@ -319,6 +321,7 @@ void NET_MANAGER::gen_fault() {
 }
 
 void NET_MANAGER::gen_fault_req() {
+    /*
 
     _fault_on = false;
     _traj_done = false;
@@ -347,6 +350,55 @@ void NET_MANAGER::gen_fault_req() {
             _fault_on = true;
         } 
     }
+    */
+    const int gen_fault_num_range_from  = 0;
+    const int gen_fault_num_range_to    = 500;
+    std::random_device                  gen_fault_rand_dev;
+    std::mt19937                        gen_fault_generator(gen_fault_rand_dev());
+    std::uniform_int_distribution<int>  gen_fault_distr(gen_fault_num_range_from, gen_fault_num_range_to);
+
+    const float perc_damage_from  = _min_p_fault; //x: 0.1 - 0.9
+    const float perc_damage_to    = _max_p_fault;  
+    std::random_device                  perc_rand_dev;
+    std::mt19937                        perc_generator(perc_rand_dev());
+    std::uniform_real_distribution<float>  perc_distr(perc_damage_from, perc_damage_to);
+ 
+    const int motor_fault_num_range_from  = 0;
+    const int motor_fault_num_range_to    = 3;
+    std::random_device                  motor_fault_rand_dev;
+    std::mt19937                        motor_fault_generator(motor_fault_rand_dev());
+    std::uniform_int_distribution<int>  motor_fault_distr(motor_fault_num_range_from, motor_fault_num_range_to);
+
+
+    _fault_on = false;
+    _traj_done = false;
+    _fault_critical = false;
+    
+    _faults.data[0] = 0.0;
+    _faults.data[1] = 0.0;
+    _faults.data[2] = 0.0;
+    _faults.data[3] = 0.0;
+    
+    string ln;
+        while( ros::ok) {
+        getline(cin, ln);
+
+        ROS_WARN("GEN Fault!");
+        ROS_INFO("Fault generation");
+        int index_motor = motor_fault_distr( motor_fault_generator );
+        cout << "Fault on motor: " << index_motor << endl;
+        //Only on motor 0 right now
+        float perc_damage = perc_distr( perc_generator );
+        //index_motor = 0;
+        _faults.data[index_motor] = perc_damage;
+        //_faults.data[1] = 0.0;
+        //_faults.data[2] = 0.0;
+        //_faults.data[3] = 0.0;
+        _fault_on = true;
+        cout << "Fault percentige: " << perc_damage << endl;
+    }
+        
+          
 }
 
 void NET_MANAGER::move_to( Vector4d wp, double cv ) {
@@ -539,8 +591,10 @@ void NET_MANAGER::net_loop() {
         int i=0;
         while( i<wps.size() && !_fault_on )  {
             //if (i == 1) 
-            if( !_test )
+            //if( !_test )
+            if(!_fault_on_req)
                 boost::thread gen_fault_t( &NET_MANAGER::gen_fault, this );
+            //
             move_to( wps[i], cvs[i] );
             _traj_done = true;
             usleep(0.1*1e6);
@@ -584,13 +638,17 @@ void NET_MANAGER::test_fault() {
 void NET_MANAGER::run(){
     
     //boost::thread write_ts_t( &NET_MANAGER::write_ts, this);
-    if( _test ) 
+   /* if( _test ) 
         boost::thread gen_fault_req_t(  &NET_MANAGER::gen_fault_req, this );
     else if( _test_fault ) {
         boost::thread test_faults_t( &NET_MANAGER::test_fault, this);
     }    
     else
-        boost::thread net_loop_t ( &NET_MANAGER::net_loop, this );
+    */
+    if( _fault_on_req )
+        boost::thread gen_fault_req_t( &NET_MANAGER::gen_fault_req, this );
+    
+    boost::thread net_loop_t ( &NET_MANAGER::net_loop, this );
     ros::spin();
 }
 
