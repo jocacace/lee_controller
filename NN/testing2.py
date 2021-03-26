@@ -32,8 +32,8 @@ MOTORS = 4
 
 rospack = rospkg.RosPack()
 pkg_path = rospack.get_path('lee_controller')
-ts_path = pkg_path + "/NN/TS/iris_val.txt"
-validation_path = pkg_path + "/NN/TS/iris_val.txt"
+ts_path = pkg_path + "/NN/TS/humm_val.txt"
+validation_path = pkg_path + "/NN/TS/humm_val.txt"
 
 count = 0
 ts_file = open(ts_path)
@@ -69,6 +69,8 @@ window = 1
 Xtot = []
 Ytot = []
 
+##Param
+Th = 0.6
 
 if DEFINE_BLOCKS == False:
     X = []
@@ -99,7 +101,8 @@ else:
 
     
 #model = tf.keras.models.load_model("/home/jcacace/Neural_net_v5.model") #Rete neurale rottura motori
-model = tf.keras.models.load_model(pkg_path + "/NN/TS/model/netQuadcross.model")
+#model = tf.keras.models.load_model(pkg_path + "/NN/TS/model/netQuadcross.model")
+model = tf.keras.models.load_model(pkg_path + "/NN/TS/model/netQuadplus.model")
 
 tot = 0
 wrong = 0
@@ -112,22 +115,22 @@ for i in range(0, len(X) ):
     input_value = X[i][0].reshape((1,1,6))
     prediction = model.predict( input_value )
     
-    if( prediction[0][0][0] < 0.8 ):
+    if( prediction[0][0][0] < Th ):
         m1 = 0
     else:
         m1 = 1
 
-    if( prediction[0][0][1] < 0.8 ):
+    if( prediction[0][0][1] < Th ):
         m2 = 0
     else:
         m2 = 1
 
-    if( prediction[0][0][2] < 0.8 ):
+    if( prediction[0][0][2] < Th ):
         m3 = 0
     else:
         m3 = 1
 
-    if( prediction[0][0][3] < 0.8 ):
+    if( prediction[0][0][3] < Th ):
         m4 = 0
     else:
         m4 = 1

@@ -33,7 +33,7 @@ class CONTROLLER {
         void ffilter();
         void cmd_publisher();
         void goal_cb( geometry_msgs::Pose p );
-        void test_motors();
+        void test_motors(int motors);
         void write_logs();
 
     private:
@@ -47,7 +47,8 @@ class CONTROLLER {
         Eigen::Vector3d _velocity_gain;
         Eigen::Vector3d _attitude_gain;
         Eigen::Vector3d _angular_rate_gain;
-        Eigen::Vector4d _omega_motor;
+        //Eigen::Vector4d _omega_motor;
+        Eigen::VectorXd _omega_motor;
         double _mass;
         double _gravity;
         vector<double> _rotor_angles;
@@ -255,7 +256,9 @@ CONTROLLER::CONTROLLER(): _first_odom(false), _new_plan(false) {
     _l_h = 0.25;
     _landed = true;
     _Eta.resize(3);
-    _omega_motor << 0.0, 0.0, 0.0, 0.0;
+    _omega_motor.resize( _motor_num );
+    for(int i=0; i<_motor_num; i++ )
+      _omega_motor[i] = 0.0; 
     _faults << 1.0, 1.0, 1.0, 1.0;
     
 }
@@ -339,6 +342,7 @@ bool generate_allocation_matrix(Eigen::MatrixXd & allocation_M,
         ROS_ERROR("The allocation matrix rank is lower than 4. This matrix specifies a not fully controllable system, check your configuration");
         return false;
     }
+
     return true;
 }
 
@@ -540,15 +544,18 @@ void CONTROLLER::cmd_publisher() {
 
     ros::Rate r(_rate);
     std_msgs::Float32MultiArray motor_vel;
-    motor_vel.data.resize( 4 );
+    motor_vel.data.resize( _motor_num );
     
     while( ros::ok() ) {
 
+        for(int i=0; i<_motor_num; i++ ) {
+          motor_vel.data[i] =  _omega_motor(i);
 
-        motor_vel.data[0] = _faults(0) * _omega_motor(0);
-        motor_vel.data[1] = _faults(1) * _omega_motor(1);
-        motor_vel.data[2] = _faults(2) * _omega_motor(2);
-        motor_vel.data[3] = _faults(3) * _omega_motor(3);        
+          //motor_vel.data[0] = _faults(0) * _omega_motor(0);
+          //motor_vel.data[1] = _faults(1) * _omega_motor(1);
+          //motor_vel.data[2] = _faults(2) * _omega_motor(2);
+          //motor_vel.data[3] = _faults(3) * _omega_motor(3);   
+        }     
         _cmd_vel_motor_pub.publish( motor_vel );
 
         r.sleep();
@@ -589,7 +596,7 @@ void CONTROLLER::ctrl_loop() {
     while( !_first_odom ) usleep(0.1*1e6);
     _mes_p << _odom.pose.pose.position.x, _odom.pose.pose.position.y, _odom.pose.pose.position.z;
     _mes_dp << _odom.twist.twist.linear.x, _odom.twist.twist.linear.y, _odom.twist.twist.linear.z;
-
+    
     if(!generate_allocation_matrix( allocation_M, _motor_num, _rotor_angles, _arm_length, _motor_force_k, _motor_moment_k, _motor_rotation_direction ) ) {     
         cout << "Wrong allocation matrix" << endl;
         exit(0);
@@ -662,7 +669,7 @@ void CONTROLLER::ctrl_loop() {
             _controller_active.publish( c_active );
             ROS_INFO("System reset");
             _restarting = true;
-            _omega_motor << 0.0, 0.0, 0.0, 0.0;
+            for(int i=0; i<_motor_num; i++) _omega_motor[i] = 0.0;
             system_reset();
             _sys_res = false;
             ext.reset();
@@ -672,7 +679,7 @@ void CONTROLLER::ctrl_loop() {
           c_active.data = true;
 
           if( ( fabs(_ref_p(2)) < _l_h) && ( (fabs( _cmd_p(2)  < 0.4) ) || _cmd_p(2) > 0.0 ) ) {
-              _omega_motor << 0.0, 0.0, 0.0, 0.0;
+              for(int i=0; i<_motor_num; i++) _omega_motor[i] = 0.0;
               _landed = true;
               ext.reset();
           }
@@ -681,6 +688,7 @@ void CONTROLLER::ctrl_loop() {
               Eigen::Matrix3d R = mes_q.toRotationMatrix();
               mes_w = R.transpose()*mes_w;
 
+            
               lc.controller(_mes_p, _ref_p, mes_q, _mes_dp, _ref_dp, _ref_ddp, _ref_yaw, mes_w, &ref_rotor_velocities, &ft, &_perror, &_verror, &att_err);   
               ext.estimation(R, mes_w, _mes_dp, ft[3], Vector3d( ft[0], ft[1], ft[2] ), double( _ctrl_rate ), ext_f, ext_t );        
             
@@ -697,7 +705,7 @@ void CONTROLLER::ctrl_loop() {
               att_err_data.y = att_err[1];
               att_err_data.z = att_err[2];
 
-              for(int i=0; i<4; i++ ) {
+              for(int i=0; i<_motor_num; i++ ) {
                   _omega_motor[i] = ref_rotor_velocities[i]; 
               }
               _landed = false;
@@ -723,8 +731,10 @@ void CONTROLLER::ctrl_loop() {
           b.data = _landed;
           _land_state_pub.publish( b );   
         }
+     
         r.sleep();
     }
+            
 }
 
 void CONTROLLER::OdometryCallback(const nav_msgs::Odometry odometry_msg) {
@@ -734,20 +744,19 @@ void CONTROLLER::OdometryCallback(const nav_msgs::Odometry odometry_msg) {
 }
 
 
-void CONTROLLER::test_motors() {
+void CONTROLLER::test_motors(int num_motor) {
   std_msgs::Float32MultiArray motor_vel;
-  motor_vel.data.resize( 4 );
+  motor_vel.data.resize( num_motor );
   ros::Rate r(10);
   while(ros::ok()) {
-    for(int i=0;i<4;i++) {
+    for(int i=0;i<num_motor;i++) {
         cout << "Test motor: " << i <<endl;
-        for(int k=0;k<4;k++) {
+        for(int k=0;k<num_motor;k++) {
           if ( k!= i)
             motor_vel.data[k] = 0;
-
         }
         for(int j=0; j<10; j++) {
-          motor_vel.data[i] = 200;
+          motor_vel.data[i] = 300;
           _cmd_vel_motor_pub.publish( motor_vel );
           r.sleep();
         }
@@ -758,7 +767,7 @@ void CONTROLLER::test_motors() {
 
 void CONTROLLER::run() {
   if ( _test_motors )
-      boost::thread test_motors_t( &CONTROLLER::test_motors, this );
+      boost::thread test_motors_t( &CONTROLLER::test_motors, this, 6 );
   else
     boost::thread ctrl_loop_t( &CONTROLLER::ctrl_loop, this );
     
