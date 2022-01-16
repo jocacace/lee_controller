@@ -34,8 +34,8 @@ MOTORS = 4
 
 rospack = rospkg.RosPack()
 pkg_path = rospack.get_path('lee_controller')
-ts_path = pkg_path + "/NN/TS/iris_ts.txt"
-validation_path = pkg_path + "/NN/TS/iris_val.txt"
+ts_path = pkg_path + "/NN/TS/humm_ts_2.txt"
+validation_path = pkg_path + "/NN/TS/humm_ts_2.txt"
 
 count = 0
 ts_file = open(ts_path)
@@ -159,4 +159,4 @@ for i in range(0, len(Xtot)):
     #Fit
     history = model.fit( xData, yData, epochs=100) #, validation_data=(xdsData, ydsData))
 
-model.save(pkg_path + "/NN/TS/model/netQuadcross.model")
+model.save(pkg_path + "/NN/TS/model/netQuadcHumm.model")

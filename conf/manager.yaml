@@ -4,8 +4,8 @@ point_from_kb: True
 take_off_altitude: -0.6
 gen_th: 350
 cnt_th: 40
-set_filename: "humm_val"
-test: False
+set_filename: "humm_ts_2"
+test: True
 test_fault: False
 fault_on_req: False
 min_p_fault: 0.005

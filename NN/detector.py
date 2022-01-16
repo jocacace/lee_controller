@@ -20,8 +20,6 @@ from geometry_msgs.msg import Wrench
 rospack = rospkg.RosPack()
 pkg_path = rospack.get_path('lee_controller')
 
-
-
 class detector():
     def __init__(self):
         rospy.init_node('fault_detector_nn')
@@ -40,7 +38,7 @@ class detector():
     def run(self):
         rate = rospy.Rate(100) # 10hz
 
-        model = tf.keras.models.load_model( pkg_path + "/NN/TS/model/netQuadplus.model") #Rete neurale rottura motori
+        model = tf.keras.models.load_model( pkg_path + "/NN/TS/model/netQuadcHumm.model") #Rete neurale rottura motori
 
         m1 = 0
         m2 = 0
@@ -83,7 +81,7 @@ class detector():
                 else:
                     m4 = 1
 
-                #print ( m1, " ", m2, " ", m3, " ", m4)
+                print ( prediction[0][0][0] , " ", prediction[0][0][1] , " ", prediction[0][0][2] , " ", prediction[0][0][3] )
                 
                 if m1 > 0:
                     fault_itr_m0 = fault_itr_m0+1
