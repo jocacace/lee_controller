@@ -83,6 +83,7 @@ class NET_MANAGER {
         bool _test_fault;
         double _min_p_fault;
         double _max_p_fault;
+        double _fault_perc;
         bool _fault_on_req;
 };
 
@@ -139,6 +140,9 @@ NET_MANAGER::NET_MANAGER() {
     }
     if( !_nh.getParam("fault_on_req", _fault_on_req)) {
         _fault_on_req = false;
+    }
+    if( !_nh.getParam("fault_perc", _fault_perc)) {
+        _fault_perc = 0.0;
     }
     
 
@@ -305,8 +309,10 @@ void NET_MANAGER::gen_fault() {
         int index_motor = motor_fault_distr( motor_fault_generator );
         cout << "Fault on motor: " << index_motor << endl;
         //Only on motor 0 right now
-        float perc_damage = perc_distr( perc_generator );
+        //float perc_damage = perc_distr( perc_generator );
         //index_motor = 0;
+        float perc_damage = _fault_perc;
+
         _faults.data[index_motor] = perc_damage;
         //_faults.data[1] = 0.0;
         //_faults.data[2] = 0.0;
@@ -388,7 +394,8 @@ void NET_MANAGER::gen_fault_req() {
         int index_motor = motor_fault_distr( motor_fault_generator );
         cout << "Fault on motor: " << index_motor << endl;
         //Only on motor 0 right now
-        float perc_damage = perc_distr( perc_generator );
+        //float perc_damage = perc_distr( perc_generator );
+        float perc_damage = _fault_perc;
         //index_motor = 0;
         _faults.data[index_motor] = perc_damage;
         //_faults.data[1] = 0.0;

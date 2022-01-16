@@ -8,5 +8,6 @@ set_filename: "humm_ts_2"
 test: True
 test_fault: False
 fault_on_req: False
-min_p_fault: 0.005
-max_p_fault: 0.1
+min_p_fault: 0.1
+max_p_fault: 0.5
+fault_perc: 0.05 #5%

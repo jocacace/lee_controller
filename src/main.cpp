@@ -549,7 +549,7 @@ void CONTROLLER::cmd_publisher() {
     while( ros::ok() ) {
 
         for(int i=0; i<_motor_num; i++ ) {
-          motor_vel.data[i] =  _omega_motor(i);
+          motor_vel.data[i] =  _faults(i) * _omega_motor(i);
 
           //motor_vel.data[0] = _faults(0) * _omega_motor(0);
           //motor_vel.data[1] = _faults(1) * _omega_motor(1);
